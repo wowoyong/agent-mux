@@ -29,7 +29,7 @@ export const SIGNAL_WEIGHTS: Record<string, number> = {
   isTerminalTask: 10,
 };
 
-export const CONFIDENCE_THRESHOLD = 0.65;
+export const CONFIDENCE_THRESHOLD = 0.02;
 
 // ─── Interaction Modifiers ──────────────────────────────────────────
 
@@ -70,6 +70,12 @@ export const INTERACTION_MODIFIERS: InteractionModifier[] = [
     condition: (s) => s.estimatedComplexity === 'high' && s.isUrgent,
     adjustment: -25,
     reason: 'Complex urgent tasks benefit from Claude context',
+  },
+  {
+    name: 'complex-debug',
+    condition: (s) => s.isDebugging && !s.isSelfContained,
+    adjustment: -35,
+    reason: 'Non-trivial debugging needs Claude investigation',
   },
 ];
 

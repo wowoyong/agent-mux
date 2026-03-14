@@ -385,19 +385,19 @@ describe('routeTask', () => {
   });
 
   describe('Phase 2 weighted scoring', () => {
-    it('routes test writing to codex on budget tier (low confidence tiebreak)', () => {
-      // isTestWriting weight is +40, but maxScore is ~730, so confidence ~0.05
-      // Below CONFIDENCE_THRESHOLD (0.65), so tiebreaker applies: budget -> codex
+    it('routes test writing to codex on budget tier (score direction)', () => {
+      // isTestWriting weight is +40, confidence ~0.05 above threshold (0.02)
+      // Positive score -> codex
       const signals = defaultSignals({ isTestWriting: true, isVerifiable: true });
       const decision = routeTask(signals, 'budget');
       expect(decision.target).toBe('codex');
     });
 
-    it('routes test writing to claude on standard tier (low confidence tiebreak)', () => {
-      // Same low confidence, standard tier tiebreaks to claude
+    it('routes test writing to codex on standard tier (score direction wins)', () => {
+      // isTestWriting weight is +40, confidence above threshold, score is positive -> codex
       const signals = defaultSignals({ isTestWriting: true, isVerifiable: true });
       const decision = routeTask(signals, 'standard');
-      expect(decision.target).toBe('claude');
+      expect(decision.target).toBe('codex');
     });
 
     it('routes strongly codex-favoring signals to codex on budget tier', () => {
@@ -456,6 +456,73 @@ describe('routeTask', () => {
       // With low confidence and budget tier, should default to codex
       const signals = defaultSignals({ isTestWriting: true });
       const decision = routeTask(signals, 'budget', 0.8, 0.8);
+      expect(decision.target).toBe('codex');
+    });
+  });
+
+  describe('End-to-end routing accuracy', () => {
+    it('routes "design payment system architecture" to claude', () => {
+      const signals = analyzeTask('design payment system architecture');
+      expect(signals.isArchitectural).toBe(true);
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
+      expect(decision.target).toBe('claude');
+    });
+
+    it('routes "debug this crash error" to claude', () => {
+      const signals = analyzeTask('debug this crash error');
+      expect(signals.isDebugging).toBe(true);
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
+      expect(decision.target).toBe('claude');
+    });
+
+    it('routes "scaffold a new project module" to claude', () => {
+      const signals = analyzeTask('scaffold a new project module');
+      expect(signals.isScaffolding).toBe(true);
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
+      expect(decision.target).toBe('claude');
+    });
+
+    it('routes "refactor multiple files across the system" to claude', () => {
+      const signals = analyzeTask('refactor multiple files across the system');
+      expect(signals.isMultiFileOrchestration).toBe(true);
+      expect(signals.isRefactoring).toBe(true);
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
+      expect(decision.target).toBe('claude');
+    });
+
+    it('routes "write unit tests for auth module" to codex', () => {
+      const signals = analyzeTask('write unit tests for auth module');
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
+      expect(decision.target).toBe('codex');
+    });
+
+    it('routes "fix all eslint errors" to codex', () => {
+      const signals = analyzeTask('fix all eslint errors');
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
+      expect(decision.target).toBe('codex');
+    });
+
+    it('routes "add JSDoc to all functions" to codex', () => {
+      const signals = analyzeTask('add JSDoc to all functions');
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
+      expect(decision.target).toBe('codex');
+    });
+
+    it('routes "security audit the auth code" to codex', () => {
+      const signals = analyzeTask('security audit the auth code');
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
+      expect(decision.target).toBe('codex');
+    });
+
+    it('routes "explain how the payment flow works" to claude', () => {
+      const signals = analyzeTask('explain how the payment flow works');
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
+      expect(decision.target).toBe('claude');
+    });
+
+    it('routes "rename userId to accountId" to codex', () => {
+      const signals = analyzeTask('rename userId to accountId');
+      const decision = routeTask(signals, 'budget', 1.0, 1.0);
       expect(decision.target).toBe('codex');
     });
   });

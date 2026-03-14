@@ -29,18 +29,24 @@ const CODEX_KEYWORDS: Array<{ pattern: RegExp; signal: keyof TaskSignals }> = [
   { pattern: /implement\s+(the\s+)?(api\s+)?endpoint/i, signal: 'isSelfContained' },
   { pattern: /update\s+(dependencies|packages?|deps)/i, signal: 'isSelfContained' },
   { pattern: /convert\s+\w+\s+(to|from|into)/i, signal: 'isRefactoring' },
+  { pattern: /\brefactor\b/i, signal: 'isRefactoring' },
   { pattern: /fix\s+(this|the)\s+(bug|error|issue)/i, signal: 'isDebugging' },
 ];
 
 /** Patterns that suggest the task is better suited for Claude */
 const CLAUDE_KEYWORDS: Array<{ pattern: RegExp; signal: keyof TaskSignals }> = [
   { pattern: /architect(ure)?\s+(for|of|the)/i, signal: 'isArchitectural' },
-  { pattern: /design\s+(a\s+)?(system|pattern|solution)/i, signal: 'isArchitectural' },
-  { pattern: /scaffold\s+(a\s+)?(project|module|structure)/i, signal: 'isScaffolding' },
-  { pattern: /debug\s+(this|the|a)\s+(error|issue|crash)/i, signal: 'isDebugging' },
+  { pattern: /\barchitecture\b/i, signal: 'isArchitectural' },
+  { pattern: /\barchitect\b/i, signal: 'isArchitectural' },
+  { pattern: /design\s+(\w+\s+)*?(system|pattern|solution|architecture)/i, signal: 'isArchitectural' },
+  { pattern: /\bdesign\b.*\b(system|architecture)\b/i, signal: 'isArchitectural' },
+  { pattern: /\bscaffold\b/i, signal: 'isScaffolding' },
+  { pattern: /debug\s+(this|the|a)\s+(\w+\s+)*(error|issue|crash|bug)/i, signal: 'isDebugging' },
+  { pattern: /\bdebug\b.*\b(crash|error|issue|bug)\b/i, signal: 'isDebugging' },
   { pattern: /review\s+(this|the|my)\s+(code|pr|changes?)/i, signal: 'isCodeReview' },
   { pattern: /explain\s+(why|how|what|the)/i, signal: 'needsConversationContext' },
-  { pattern: /refactor\s+(multiple|several|all|across)/i, signal: 'isMultiFileOrchestration' },
+  { pattern: /refactor\s+(\w+\s+)*?(multiple|several|all|across)/i, signal: 'isMultiFileOrchestration' },
+  { pattern: /\brefactor\b.*\b(multiple|across|several)\b/i, signal: 'isMultiFileOrchestration' },
   { pattern: /security\s+(audit|review|scan|check)/i, signal: 'isSecurityAudit' },
   { pattern: /best\s+(approach|way|strategy|practice)/i, signal: 'isArchitectural' },
 ];

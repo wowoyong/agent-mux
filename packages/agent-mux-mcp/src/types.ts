@@ -403,3 +403,45 @@ export interface ReviewResult {
   stdout: string;
   stderr: string;
 }
+
+// ─── Routing Log & Learning ─────────────────────────────────────────
+
+export interface RoutingLogEntry {
+  timestamp: number;
+  taskSummary: string;
+  signals: Partial<TaskSignals>;
+  decision: {
+    target: RouteTarget;
+    confidence: number;
+    reason: string;
+    phase: 1 | 2;
+  };
+  userOverride?: RouteTarget;
+  outcome?: 'success' | 'failure' | 'escalated';
+  durationMs?: number;
+}
+
+export interface LearnedOverride {
+  signalPattern: Partial<TaskSignals>;
+  forcedTarget: RouteTarget;
+  count: number;
+  lastUsed: number;
+}
+
+// ─── Task Decomposition ─────────────────────────────────────────────
+
+export interface SubTask {
+  id: string;
+  description: string;
+  recommendedTarget: RouteTarget;
+  dependencies: string[];   // IDs of subtasks that must complete first
+  estimatedFiles: number;
+  priority: number;          // lower = higher priority
+}
+
+export interface DecompositionResult {
+  shouldDecompose: boolean;
+  reason: string;
+  subtasks: SubTask[];
+  executionStrategy: 'sequential' | 'parallel' | 'fan-out';
+}

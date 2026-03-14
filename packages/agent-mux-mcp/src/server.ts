@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { spawnCodex } from './tools/spawn-codex.js';
 import { checkBudget } from './tools/check-budget.js';
 import { getStatus } from './tools/get-status.js';
+import { handleDecomposeTask } from './tools/decompose-task.js';
 
 /**
  * Create and configure the MCP server with all agent-mux tools.
@@ -100,6 +101,40 @@ export function createServer(): McpServer {
       const result = await getStatus(params);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    }
+  );
+
+  // Register decompose_task tool
+  server.tool(
+    'decompose_task',
+    'Analyze a complex task and decompose it into subtasks with routing recommendations',
+    {
+      taskDescription: z.string().describe('The task description to analyze and decompose'),
+    },
+    async (params) => {
+      const result = await handleDecomposeTask(params);
+
+      const lines: string[] = [];
+      if (!result.shouldDecompose) {
+        lines.push(`[agent-mux] No decomposition needed: ${result.reason}`);
+      } else {
+        lines.push(`[agent-mux] ═══ Task Decomposition ═══`);
+        lines.push(`  Strategy: ${result.executionStrategy}`);
+        lines.push(`  Reason: ${result.reason}`);
+        lines.push(`  Subtasks: ${result.subtasks.length}`);
+        lines.push('');
+        for (const st of result.subtasks) {
+          lines.push(`  [${st.id}] ${st.description}`);
+          lines.push(`      Target: ${st.recommendedTarget}  |  Files: ~${st.estimatedFiles}  |  Priority: ${st.priority}`);
+          lines.push(`      Dependencies: ${st.dependencies.length > 0 ? st.dependencies.join(', ') : 'none'}`);
+          lines.push('');
+        }
+        lines.push(`═══════════════════════════════`);
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
       };
     }
   );

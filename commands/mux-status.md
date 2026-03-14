@@ -1,84 +1,51 @@
 ---
 name: mux-status
-description: Show current agent-mux budget and task status
-allowed-tools: [check_budget, get_mux_status]
+description: Show agent-mux budget, task stats, and system status
+allowed-tools: [get_mux_status, check_budget]
 ---
 
-# /mux-status command
+# /mux-status
 
-Display the current budget status, running tasks, and session statistics.
+Call the `get_mux_status` MCP tool and display results as a formatted dashboard.
 
-## Steps
+## Display Format
 
-1. Call `get_mux_status` MCP tool to retrieve full system state
-2. Format and display the status dashboard
-
-## Output format
+Show this dashboard format to the user:
 
 ```
 [agent-mux] ═══ Agent Mux Status ═══
+
   Tier: {tier} ({claude_plan} + {codex_plan})
-  Session: {elapsed} elapsed
+  Session: {session_duration} elapsed
 
-  Budget:
-  Claude:  {progress_bar}  {used}/{total} ({pct}%)
-  Codex:   {progress_bar}  {used}/{total} ({pct}%)
-
-  Recommendation: {recommendation}
-
-  Running Tasks: {count}
-  {task_list_or_none}
+  ┌─ Budget ─────────────────────────────────┐
+  │ Claude:  {progress_bar}  {used}/{total}  │
+  │ Codex:   {progress_bar}  {used}/{total}  │
+  └──────────────────────────────────────────┘
 
   Session Stats:
-  Claude messages: {claude_msg_count}
-  Codex tasks:     {codex_task_count}
-  Escalations:     {escalation_count}
+  ├─ Total tasks: {total}
+  ├─ Claude: {claude_count} tasks
+  ├─ Codex: {codex_count} tasks ({success_rate}% success)
+  └─ Escalations: {escalation_count}
 
-  Detected Plugins: {plugin_list_or_none}
-═══════════════════════════════
+  Warnings: {warnings_list or "none"}
+
+  Detected Plugins: {plugin_list or "none"}
+  Codex CLI: {version or "not installed"}
 ```
 
-## Progress bar format
+## Progress Bar Format
+Use block characters to create a visual progress bar:
+- Under 50%: ████░░░░░░░░░░░░░░░░ (green feeling)
+- 50-74%: ████████████░░░░░░░░ (normal)
+- 75-89%: ██████████████████░░ ⚠️ (warning)
+- 90%+: ████████████████████ 🚨 (critical)
 
-Use block characters to render a 16-character progress bar:
-- `█` for used portion
-- `░` for remaining portion
+## Budget Tier-Specific Behavior
+- Budget ($40): Show "CONSERVE" label if >50% used
+- Standard ($120): Normal display
+- Premium ($220): Minimal warnings
+- Power ($400): Relaxed display
 
-Examples:
-- 25%: `████░░░░░░░░░░░░`
-- 50%: `████████░░░░░░░░`
-- 75%: `████████████░░░░`
-- 90%: `██████████████░░` (with warning color indicator)
-
-## Budget recommendation display
-
-| Recommendation | Display |
-|----------------|---------|
-| normal | `Normal -- routing as configured` |
-| conserve | `Conserving -- shifting to Codex-first` |
-| codex_only | `Codex-only mode -- Claude budget near limit` |
-| queue | `Queueing -- both CLIs near capacity. Reset in {time}` |
-
-## Running task display
-
-For each active task, show:
-```
-  [{taskId}] {target} | {status} | {elapsed}s elapsed
-```
-
-If no tasks are running:
-```
-  No active tasks
-```
-
-## Detected plugins display
-
-List any detected sibling plugins:
-```
-  harness-planner, architecture-enforcer, harness-docs
-```
-
-If none detected:
-```
-  None (standalone mode)
-```
+If there are active warnings, display them prominently below the budget section.

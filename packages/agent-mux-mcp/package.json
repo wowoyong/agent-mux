@@ -1,6 +1,6 @@
 {
   "name": "agent-mux-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for agent-mux — routes tasks between Claude Code and Codex CLI based on complexity, optimizing AI coding subscription costs",
   "main": "dist/src/server.js",
   "bin": {

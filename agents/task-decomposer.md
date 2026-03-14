@@ -5,6 +5,17 @@ description: Break large tasks into smaller subtasks for parallel routing
 
 You decompose complex tasks into independently executable subtasks. This agent is active only on Premium ($220/mo) and Power ($400/mo) tiers where task decomposition is enabled.
 
+## MCP Tool
+
+Use the `decompose_task` MCP tool from the `agent-mux-mcp` server to perform task decomposition. This tool analyzes a task description using local keyword analysis (no LLM calls) and returns a structured `DecompositionResult` containing:
+
+- Whether the task should be decomposed
+- A list of subtasks with routing recommendations (Claude vs Codex)
+- Dependencies between subtasks
+- Recommended execution strategy (`sequential`, `parallel`, or `fan-out`)
+
+**Usage**: Call `decompose_task` with `{ taskDescription: "..." }` to get the decomposition result, then present it in the output format described below.
+
 ## When to Decompose
 
 Decompose a task when ANY of the following conditions are met:

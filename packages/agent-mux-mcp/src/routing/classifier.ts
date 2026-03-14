@@ -6,7 +6,7 @@
  *   Phase 2: Weighted scoring with interaction modifiers and budget adjustment
  */
 
-import type { TaskSignals, RouteDecision, RouteTarget, TierName } from '../types.js';
+import type { TaskSignals, RouteDecision, RouteTarget, TierName, RoutingLogEntry } from '../types.js';
 import {
   SIGNAL_WEIGHTS,
   INTERACTION_MODIFIERS,
@@ -15,6 +15,7 @@ import {
   extractFilePatterns,
 } from './signals.js';
 import { HARD_RULES } from './rules.js';
+import { logRoutingDecision, loadOverrides, matchOverride } from './history.js';
 
 // ─── Keyword Patterns ───────────────────────────────────────────────
 
@@ -223,13 +224,14 @@ export function routeTask(
   signals: TaskSignals,
   tier: TierName = 'standard',
   claudeBudgetPct: number = 1.0,
-  codexBudgetPct: number = 1.0
+  codexBudgetPct: number = 1.0,
+  taskDescription: string = ''
 ): RouteDecision {
   // Phase 1: Check hard rules in priority order
   const sortedRules = [...HARD_RULES].sort((a, b) => a.priority - b.priority);
   for (const rule of sortedRules) {
     if (rule.condition(signals)) {
-      return {
+      const decision: RouteDecision = {
         target: rule.target,
         confidence: 1.0,
         reason: rule.reason,
@@ -237,7 +239,25 @@ export function routeTask(
         escalated: false,
         matchedRule: rule.id,
       };
+      // Log asynchronously (fire-and-forget)
+      logRoutingDecisionAsync(taskDescription, signals, decision, 1);
+      return decision;
     }
+  }
+
+  // Check learned overrides before Phase 2 scoring
+  // loadOverrides is async, but we use a cached version synchronously
+  const overrideResult = checkLearnedOverridesSync(signals);
+  if (overrideResult) {
+    const decision: RouteDecision = {
+      target: overrideResult.forcedTarget,
+      confidence: 0.9,
+      reason: `Learned override applied (${overrideResult.count} past overrides matched)`,
+      signals,
+      escalated: false,
+    };
+    logRoutingDecisionAsync(taskDescription, signals, decision, 2);
+    return decision;
   }
 
   // Phase 2: Weighted scoring
@@ -282,22 +302,26 @@ export function routeTask(
   // Tiebreaker for ambiguous cases (low confidence)
   if (confidence < CONFIDENCE_THRESHOLD) {
     target = tier === 'budget' ? 'codex' : 'claude';
-    return {
+    const decision: RouteDecision = {
       target,
       confidence,
       reason: buildReason(target, activeSignals, appliedModifiers, true),
       signals,
       escalated: false,
     };
+    logRoutingDecisionAsync(taskDescription, signals, decision, 2);
+    return decision;
   }
 
-  return {
+  const decision: RouteDecision = {
     target,
     confidence,
     reason: buildReason(target, activeSignals, appliedModifiers, false),
     signals,
     escalated: false,
   };
+  logRoutingDecisionAsync(taskDescription, signals, decision, 2);
+  return decision;
 }
 
 /**
@@ -327,4 +351,88 @@ function buildReason(
   }
 
   return parts.join(' | ');
+}
+
+// ─── Learned Override Cache ─────────────────────────────────────────
+
+import type { LearnedOverride } from '../types.js';
+
+let _cachedOverrides: LearnedOverride[] | null = null;
+let _cacheTimestamp = 0;
+const CACHE_TTL_MS = 30_000; // 30 seconds
+
+function checkLearnedOverridesSync(signals: TaskSignals): LearnedOverride | null {
+  // Use cached overrides; refresh async if stale
+  if (_cachedOverrides === null || Date.now() - _cacheTimestamp > CACHE_TTL_MS) {
+    // Trigger async refresh (fire-and-forget)
+    loadOverrides().then(overrides => {
+      _cachedOverrides = overrides;
+      _cacheTimestamp = Date.now();
+    }).catch(() => {});
+  }
+
+  if (_cachedOverrides && _cachedOverrides.length > 0) {
+    return matchOverride(signals, _cachedOverrides);
+  }
+  return null;
+}
+
+/**
+ * Refresh the learned overrides cache.
+ * Call this on startup to warm the cache.
+ */
+export async function refreshOverridesCache(): Promise<void> {
+  _cachedOverrides = await loadOverrides();
+  _cacheTimestamp = Date.now();
+}
+
+// ─── Async Logging Helper ───────────────────────────────────────────
+
+function logRoutingDecisionAsync(
+  taskDescription: string,
+  signals: TaskSignals,
+  decision: RouteDecision,
+  phase: 1 | 2
+): void {
+  const entry: RoutingLogEntry = {
+    timestamp: Date.now(),
+    taskSummary: taskDescription.slice(0, 200),
+    signals,
+    decision: {
+      target: decision.target,
+      confidence: decision.confidence,
+      reason: decision.reason,
+      phase,
+    },
+  };
+  // Fire-and-forget
+  logRoutingDecision(entry).catch(() => {});
+}
+
+// ─── User Override Recording ────────────────────────────────────────
+
+/**
+ * Record a user override for a previously routed task.
+ * This logs the override and triggers learning for future routing.
+ */
+export async function recordUserOverride(
+  taskDescription: string,
+  override: RouteTarget
+): Promise<void> {
+  const signals = analyzeTask(taskDescription);
+  const entry: RoutingLogEntry = {
+    timestamp: Date.now(),
+    taskSummary: taskDescription.slice(0, 200),
+    signals,
+    decision: {
+      target: override === 'claude' ? 'codex' : 'claude', // original was the opposite
+      confidence: 0,
+      reason: 'User override',
+      phase: 2,
+    },
+    userOverride: override,
+  };
+  await logRoutingDecision(entry);
+  // Refresh cache after learning
+  await refreshOverridesCache();
 }

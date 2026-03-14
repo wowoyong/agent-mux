@@ -1,6 +1,6 @@
 {
   "name": "agent-mux-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server for agent-mux — routes tasks between Claude Code and Codex CLI based on complexity, optimizing AI coding subscription costs",
   "main": "dist/src/server.js",
   "bin": {
@@ -15,6 +15,8 @@
     "dev": "tsc --watch",
     "start": "node dist/server.js",
     "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -51,8 +53,9 @@
     "@modelcontextprotocol/sdk": "^1.12.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "^5.8.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^4.1.0"
   },
   "engines": {
     "node": ">=18.0.0"

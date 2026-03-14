@@ -2,6 +2,7 @@
   "name": "agent-mux",
   "version": "0.1.0",
   "description": "Route tasks between Claude Code and Codex CLI — Subscription Efficiency Maximizer",
+  "author": "jojaeyong",
   "skills": [
     {
       "name": "mux",

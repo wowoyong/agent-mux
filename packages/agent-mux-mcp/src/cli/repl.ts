@@ -6,6 +6,7 @@ import { showStatus } from './status.js';
 import { loadConfig } from '../config/loader.js';
 import { getBudgetStatus } from '../budget/tracker.js';
 import { TIER_LIMITS } from '../config/tiers.js';
+import { box, progressBar } from './ui.js';
 
 export async function startRepl(): Promise<void> {
   // Set up readline and register handlers IMMEDIATELY to capture piped stdin.
@@ -109,19 +110,10 @@ export async function startRepl(): Promise<void> {
   const limits = TIER_LIMITS[config.tier];
 
   // Header
-  console.log(
-    chalk.bold(
-      `\n  ⚡ agent-mux v0.3.1 | ${config.tier} tier ($${config.claude.cost + config.codex.cost}/mo)`
-    )
-  );
-  printBudgetLine(budget, limits);
   console.log();
-  console.log(chalk.gray('  Type a task to route, or a command:'));
-  console.log(chalk.gray('    /status  — budget dashboard'));
-  console.log(chalk.gray('    /go      — auto-execute mode'));
-  console.log(chalk.gray('    /config  — show configuration'));
-  console.log(chalk.gray('    /help    — show help'));
-  console.log(chalk.gray('    /quit    — exit'));
+  console.log(printHeader(config, budget, limits));
+  console.log();
+  console.log(chalk.gray('  Commands: /status  /go  /config  /help  /quit'));
   console.log();
 
   // Manual prompt to avoid readline double-echo on macOS
@@ -132,38 +124,55 @@ export async function startRepl(): Promise<void> {
   void drainQueue();
 }
 
+function printHeader(
+  config: { tier: string; claude: { cost: number }; codex: { cost: number } },
+  budget: { claude: { usagePercent: number; tasksCompleted: number }; codex: { usagePercent: number; tasksCompleted: number } },
+  limits: { claudeMsg5hr: number; codexTasksDay: number }
+): string {
+  const codexTotal = limits.codexTasksDay === Infinity ? '\u221e' : String(limits.codexTasksDay);
+
+  const claudePct = Math.round(budget.claude.usagePercent);
+  const codexPct = Math.round(budget.codex.usagePercent);
+
+  const claudeBarStr = `${progressBar(claudePct)}  ${String(claudePct).padStart(3)}%  (${budget.claude.tasksCompleted}/${limits.claudeMsg5hr})`;
+  const codexBarStr = `${progressBar(codexPct)}  ${String(codexPct).padStart(3)}%  (${budget.codex.tasksCompleted}/${codexTotal})`;
+
+  const lines = [
+    chalk.bold(`agent-mux v0.4.0`),
+    `Tier: ${chalk.bold(config.tier)} ($${config.claude.cost + config.codex.cost}/mo)`,
+    '',
+    `Claude  ${claudeBarStr}`,
+    `Codex   ${codexBarStr}`,
+  ];
+
+  return box('', lines);
+}
+
 function printBudgetLine(budget: { claude: { usagePercent: number; tasksCompleted: number }; codex: { usagePercent: number; tasksCompleted: number } }, limits: { claudeMsg5hr: number; codexTasksDay: number }): void {
-  const claudeBar = makeBar(budget.claude.usagePercent, 10);
-  const codexBar = makeBar(budget.codex.usagePercent, 10);
   const codexTotal =
     limits.codexTasksDay === Infinity ? '\u221E' : String(limits.codexTasksDay);
+  const claudePct = Math.round(budget.claude.usagePercent);
+  const codexPct = Math.round(budget.codex.usagePercent);
   console.log(
-    chalk.gray('  Claude'),
-    claudeBar,
-    chalk.gray(`${budget.claude.tasksCompleted}/${limits.claudeMsg5hr}`),
-    chalk.gray('|'),
-    chalk.gray('Codex'),
-    codexBar,
-    chalk.gray(`${budget.codex.tasksCompleted}/${codexTotal}`)
+    `  Claude ${progressBar(claudePct, 10)} ${budget.claude.tasksCompleted}/${limits.claudeMsg5hr}`,
+    chalk.gray('\u2502'),
+    `Codex ${progressBar(codexPct, 10)} ${budget.codex.tasksCompleted}/${codexTotal}`
   );
 }
 
-function makeBar(pct: number, width: number): string {
-  const filled = Math.round((pct / 100) * width);
-  const empty = width - filled;
-  const color = pct >= 90 ? chalk.red : pct >= 75 ? chalk.yellow : chalk.green;
-  return color('\u2588'.repeat(filled)) + chalk.gray('\u2591'.repeat(empty));
-}
-
 function printHelp(): void {
-  console.log(chalk.bold('\n  agent-mux Commands:\n'));
-  console.log('  <task>           Route and execute a task');
-  console.log('  /go <task>       Auto-execute mode (skip confirmations)');
-  console.log('  /status          Show budget dashboard');
-  console.log('  /config          Show current configuration');
-  console.log('  /help            Show this help');
-  console.log('  /quit            Exit REPL');
-  console.log();
-  console.log(chalk.gray('  Routing is automatic. Tasks are analyzed and sent to'));
-  console.log(chalk.gray('  Claude (complex/interactive) or Codex (simple/independent).'));
+  const lines = [
+    chalk.bold('Commands'),
+    '',
+    `${chalk.white('<task>')}           Route and execute a task`,
+    `${chalk.white('/go <task>')}       Auto-execute mode`,
+    `${chalk.white('/status')}          Show budget dashboard`,
+    `${chalk.white('/config')}          Show current configuration`,
+    `${chalk.white('/help')}            Show this help`,
+    `${chalk.white('/quit')}            Exit REPL`,
+    '',
+    chalk.gray('Routing is automatic. Tasks are analyzed and'),
+    chalk.gray('sent to Claude or Codex based on complexity.'),
+  ];
+  console.log('\n' + box('Help', lines));
 }

@@ -9,6 +9,7 @@ import { loadConfig } from '../config/loader.js';
 import { getBudgetStatus } from '../budget/tracker.js';
 import { TIER_LIMITS } from '../config/tiers.js';
 import { spawnClaude } from './claude-spawner.js';
+import { box, lightBox, progressBar, indent } from './ui.js';
 import type { MuxConfig } from '../types.js';
 
 const execAsync = promisify(execFile);
@@ -46,29 +47,40 @@ export async function runTask(taskDescription: string, options: RunOptions): Pro
     decision = routeTask(signals, config.tier, claudePct, codexPct, taskDescription);
   }
 
-  // Display routing decision
+  const confPct = Math.round(decision.confidence * 100);
+  const targetName = decision.target === 'claude' ? 'Claude' : 'Codex';
   const targetColor = decision.target === 'claude' ? chalk.blue : chalk.green;
-  console.log(
-    chalk.gray('[agent-mux]'),
-    'Routing →',
-    targetColor.bold(decision.target.toUpperCase()),
-    chalk.gray(`(${decision.reason}, confidence: ${Math.round(decision.confidence * 100)}%)`)
-  );
 
-  // Verbose mode: show signals
+  // Display routing decision
   if (options.verbose) {
-    console.log(chalk.gray('\nSignals:'));
-    for (const [key, value] of Object.entries(signals)) {
-      if (typeof value === 'boolean' && value) {
-        console.log(chalk.gray(`  + ${key}`));
-      }
+    // Verbose: full box
+    const routeLines = [
+      `Target:     ${targetColor.bold(targetName)}`,
+      `Reason:     ${decision.reason}`,
+      `Confidence: ${progressBar(confPct)} ${confPct}%`,
+    ];
+
+    // Add signals
+    const activeSignals = Object.entries(signals)
+      .filter(([, v]) => typeof v === 'boolean' && v)
+      .map(([k]) => k);
+
+    if (activeSignals.length > 0) {
+      routeLines.push('');
+      routeLines.push(chalk.gray('Signals: ' + activeSignals.join(', ')));
     }
-    console.log();
+
+    console.log('\n' + indent(lightBox('Routing', routeLines)));
+  } else {
+    // Compact styled routing line
+    console.log(
+      `\n  ${chalk.gray('\u2192')} ${targetColor.bold(targetName)}  ${chalk.gray(decision.reason)}  ${progressBar(confPct, 10)} ${chalk.gray(confPct + '%')}`
+    );
   }
 
   // Dry run: stop here
   if (options.dryRun) {
-    console.log(chalk.yellow('\n[DRY RUN] No execution performed.'));
+    console.log(chalk.yellow('\n  [DRY RUN] No execution performed.'));
     return;
   }
 
@@ -82,11 +94,12 @@ export async function runTask(taskDescription: string, options: RunOptions): Pro
   // Show budget after execution
   const updatedBudget = await getBudgetStatus();
   const limits = TIER_LIMITS[config.tier];
+  const codexTotal = limits.codexTasksDay === Infinity ? '\u221e' : String(limits.codexTasksDay);
   console.log(
-    chalk.gray('\n[agent-mux] Budget:'),
+    chalk.gray('\n  Budget:'),
     chalk.blue(`Claude ${updatedBudget.claude.tasksCompleted}/${limits.claudeMsg5hr}`),
-    chalk.gray('|'),
-    chalk.green(`Codex ${updatedBudget.codex.tasksCompleted}/${limits.codexTasksDay === Infinity ? 'inf' : limits.codexTasksDay}`)
+    chalk.gray('\u2502'),
+    chalk.green(`Codex ${updatedBudget.codex.tasksCompleted}/${codexTotal}`)
   );
 }
 
@@ -109,50 +122,56 @@ async function executeCodex(task: string, _config: MuxConfig, options: RunOption
 
     if (result.finalResult.success) {
       spinner.succeed(
-        chalk.green(`Complete -- ${result.finalResult.filesModified.length} files modified (${elapsed}s)`)
+        chalk.green(`Complete \u2014 ${result.finalResult.filesModified.length} files modified (${elapsed}s)`)
       );
 
       // Show modified files
       if (result.finalResult.filesModified.length > 0) {
-        console.log(chalk.gray('\nModified files:'));
+        console.log(chalk.gray('\n  Modified files:'));
         for (const f of result.finalResult.filesModified) {
-          console.log(chalk.gray(`  ├── ${f}`));
+          console.log(chalk.gray(`    \u251c\u2500\u2500 ${f}`));
         }
       }
 
       // Show diff preview
       if (result.finalResult.worktreePath && result.finalResult.filesModified.length > 0) {
-        console.log(chalk.gray('\n--- Diff Preview ---'));
         const diff = await getDiff(result.finalResult.worktreePath);
-        // Show truncated diff (max 50 lines)
         const diffLines = diff.split('\n');
-        const preview = diffLines.slice(0, 50).join('\n');
-        console.log(colorDiff(preview));
+        const previewLines = diffLines.slice(0, 50);
+
+        // Parse file info from diff for the header
+        const fileInfo = parseDiffFileInfo(diff);
+        const headerSuffix = fileInfo ? `  ${chalk.gray(fileInfo)}` : '';
+
+        const coloredPreview = previewLines.map(line => colorDiffLine(line));
         if (diffLines.length > 50) {
-          console.log(chalk.gray(`  ... (${diffLines.length - 50} more lines)`));
+          coloredPreview.push(chalk.gray(`(${diffLines.length - 50} more lines)`));
         }
+
+        console.log('\n' + indent(lightBox('Diff Preview' + headerSuffix, coloredPreview)));
 
         // Confirmation prompt (unless --auto-apply)
         if (!options.autoApply) {
-          const answer = await askUser('\nApply changes? [y/n/d(full diff)] ');
+          const answer = await askUser('\n  Apply changes? [Y]es / [N]o / [D]iff full ');
           if (answer.toLowerCase() === 'd') {
-            console.log(colorDiff(diff));
-            const answer2 = await askUser('\nApply changes? [y/n] ');
+            const allColored = diff.split('\n').map(line => colorDiffLine(line));
+            console.log('\n' + indent(lightBox('Full Diff', allColored)));
+            const answer2 = await askUser('\n  Apply changes? [Y]es / [N]o ');
             if (answer2.toLowerCase() !== 'y') {
               await rollback(result.finalResult.worktreePath, result.finalResult.branchName);
-              console.log(chalk.yellow('Changes discarded.'));
+              console.log(chalk.yellow('  Changes discarded.'));
               return;
             }
           } else if (answer.toLowerCase() !== 'y') {
             await rollback(result.finalResult.worktreePath, result.finalResult.branchName);
-            console.log(chalk.yellow('Changes discarded.'));
+            console.log(chalk.yellow('  Changes discarded.'));
             return;
           }
         }
 
         // Merge worktree
         await mergeAndCleanup(result.finalResult.worktreePath, result.finalResult.branchName);
-        console.log(chalk.green('✓ Changes applied.'));
+        console.log(chalk.green('  \u2713 Changes applied.'));
       }
 
       // Show retry info if any
@@ -163,19 +182,19 @@ async function executeCodex(task: string, _config: MuxConfig, options: RunOption
       spinner.fail(chalk.red(`Failed after ${elapsed}s`));
 
       if (result.escalatedToClaude) {
-        console.log(chalk.yellow('\n>> Escalating to Claude...'));
+        console.log(chalk.yellow('\n  \u2192 Escalating to Claude...'));
         await executeClaude(
           `Previous Codex attempt failed: ${result.escalationReason}\n\nOriginal task: ${task}`,
           options
         );
       } else {
-        console.log(chalk.red(`Error: ${result.finalResult.stderr.slice(0, 200)}`));
+        console.log(chalk.red(`  Error: ${result.finalResult.stderr.slice(0, 200)}`));
       }
     }
   } catch (err: unknown) {
     spinner.fail(chalk.red('Codex execution failed'));
     const message = err instanceof Error ? err.message : String(err);
-    console.error(chalk.red(message));
+    console.error(chalk.red(`  ${message}`));
   }
 }
 
@@ -195,14 +214,33 @@ async function executeClaude(task: string, _options: RunOptions): Promise<void> 
 
 // ─── Diff Utilities ──────────────────────────────────────────────────
 
-/** Colorize a unified diff for terminal output */
-function colorDiff(diff: string): string {
-  return diff.split('\n').map(line => {
-    if (line.startsWith('+') && !line.startsWith('+++')) return chalk.green(line);
-    if (line.startsWith('-') && !line.startsWith('---')) return chalk.red(line);
-    if (line.startsWith('@@')) return chalk.cyan(line);
-    return chalk.gray(line);
-  }).join('\n');
+/** Colorize a single diff line */
+function colorDiffLine(line: string): string {
+  if (line.startsWith('+') && !line.startsWith('+++')) return chalk.green(line);
+  if (line.startsWith('-') && !line.startsWith('---')) return chalk.red(line);
+  if (line.startsWith('@@')) return chalk.cyan(line);
+  return chalk.gray(line);
+}
+
+/** Parse file info from a unified diff header */
+function parseDiffFileInfo(diff: string): string {
+  const files = new Set<string>();
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+++ b/')) {
+      files.add(line.slice(6));
+    } else if (line.startsWith('+') && !line.startsWith('+++')) {
+      additions++;
+    } else if (line.startsWith('-') && !line.startsWith('---')) {
+      deletions++;
+    }
+  }
+  if (files.size === 0) return '';
+  const fileList = files.size === 1
+    ? [...files][0]
+    : `${files.size} files`;
+  return `${fileList}  (+${additions}, -${deletions})`;
 }
 
 /** Get unified diff from a worktree */

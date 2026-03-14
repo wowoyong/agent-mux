@@ -3,6 +3,7 @@ import { getBudgetStatus } from '../budget/tracker.js';
 import { loadConfig } from '../config/loader.js';
 import { TIER_LIMITS } from '../config/tiers.js';
 import { detectCodexCli } from '../config/detector.js';
+import { box, lightBox, progressBar, label, indent } from './ui.js';
 
 export async function showStatus(): Promise<void> {
   const config = await loadConfig();
@@ -10,39 +11,44 @@ export async function showStatus(): Promise<void> {
   const limits = TIER_LIMITS[config.tier];
   const codex = await detectCodexCli();
 
-  console.log(chalk.bold('\n=== agent-mux Status ===\n'));
+  const codexTotal = limits.codexTasksDay === Infinity ? '\u221e' : String(limits.codexTasksDay);
+  const claudePct = Math.round(budget.claude.usagePercent);
+  const codexPct = Math.round(budget.codex.usagePercent);
 
-  // Tier info
-  console.log(`  Tier: ${chalk.bold(config.tier)} ($${config.claude.cost + config.codex.cost}/mo)`);
-  console.log(`  Codex CLI: ${codex.installed ? chalk.green(`[ok] ${codex.version}`) : chalk.red('[x] not installed')}`);
-  console.log();
+  // Codex status
+  const codexStatus = codex.installed
+    ? chalk.green('\u2713') + ` ${codex.version}`
+    : chalk.red('\u2717') + ' not installed';
 
-  // Budget bars
-  const claudeBar = makeBar(budget.claude.usagePercent);
-  const codexBar = makeBar(budget.codex.usagePercent);
+  // Budget inner box
+  const budgetLines = [
+    `Claude  ${progressBar(claudePct)}  ${String(claudePct).padStart(3)}%`,
+    chalk.gray(`        ${budget.claude.tasksCompleted} / ${limits.claudeMsg5hr} messages (5hr)`),
+    `Codex   ${progressBar(codexPct)}  ${String(codexPct).padStart(3)}%`,
+    chalk.gray(`        ${budget.codex.tasksCompleted} / ${codexTotal} tasks (daily)`),
+  ];
+  const budgetBox = lightBox('Budget', budgetLines);
 
-  console.log(`  Claude:  ${claudeBar}  ${budget.claude.tasksCompleted}/${limits.claudeMsg5hr}`);
-  console.log(`  Codex:   ${codexBar}  ${budget.codex.tasksCompleted}/${limits.codexTasksDay === Infinity ? 'inf' : limits.codexTasksDay}`);
-  console.log();
+  // Outer box lines
+  const outerLines = [
+    '',
+    label('Tier', `${chalk.bold(config.tier)} ($${config.claude.cost + config.codex.cost}/mo)`),
+    label('Codex', codexStatus),
+    label('Engine', `${config.routing.engine} | Bias: ${config.routing.bias} | Split: ${config.routing.split.claude}/${config.routing.split.codex}`),
+    '',
+    // Embed budget box — indent each line
+    ...budgetBox.split('\n').map(l => '  ' + l),
+    '',
+  ];
 
   // Warnings
   if (budget.warnings && budget.warnings.length > 0) {
     for (const w of budget.warnings) {
-      const icon = w.level === 'critical' ? '!!' : w.level === 'warn' ? '!' : 'i';
-      console.log(`  [${icon}] ${w.message}`);
+      const icon = w.level === 'critical' ? chalk.red('!!') : w.level === 'warn' ? chalk.yellow('!') : chalk.gray('i');
+      outerLines.push(`  ${icon} ${w.message}`);
     }
-    console.log();
+    outerLines.push('');
   }
 
-  // Routing config
-  console.log(chalk.gray(`  Routing: ${config.routing.engine} | Bias: ${config.routing.bias} | Split: ${config.routing.split.claude}/${config.routing.split.codex}`));
-  console.log();
-}
-
-function makeBar(pct: number): string {
-  const width = 20;
-  const filled = Math.round((pct / 100) * width);
-  const empty = width - filled;
-  const color = pct >= 90 ? chalk.red : pct >= 75 ? chalk.yellow : chalk.green;
-  return color('#'.repeat(filled)) + chalk.gray('-'.repeat(empty));
+  console.log('\n' + box('agent-mux Status', outerLines, 56) + '\n');
 }

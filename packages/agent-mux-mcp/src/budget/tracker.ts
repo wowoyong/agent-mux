@@ -1,102 +1,134 @@
 /**
  * Budget Tracker
  * Tracks usage and remaining budget for Claude and Codex subscriptions.
- * Simple in-memory tracker that estimates remaining capacity based on
- * session usage and tier limits.
+ * Persistence-backed tracking with in-memory session counters for fast path.
  */
 
-import type { BudgetStatus, AgentBudget, RouteTarget, TierName } from '../types.js';
+import type { BudgetStatus, AgentBudget, BudgetWarning, RouteTarget } from '../types.js';
 import { loadConfig } from '../config/loader.js';
 import { TIER_LIMITS } from '../config/tiers.js';
-import { estimateRemainingBudget } from './estimator.js';
+import { appendUsageRecord, getUsageSummary } from './persistence.js';
 
-// ─── In-Memory Session Usage ────────────────────────────────────────
+// ─── In-Memory Session Counters (fast path) ─────────────────────────
 
-interface SessionUsage {
-  claudeMessages: number;
-  codexTasks: number;
-  sessionStart: number;
-  windowStart: number; // 5hr window start
-}
-
-const usage: SessionUsage = {
-  claudeMessages: 0,
-  codexTasks: 0,
-  sessionStart: Date.now(),
-  windowStart: Date.now(),
-};
+let sessionClaudeMessages = 0;
+let sessionCodexTasks = 0;
+const sessionStart = Date.now();
 
 /**
  * Record a Claude message against the budget.
+ * Persists to JSONL file (fire-and-forget).
  */
-export function recordClaudeMessage(): void {
-  usage.claudeMessages++;
+export function recordClaudeMessage(taskId?: string): void {
+  sessionClaudeMessages++;
+  appendUsageRecord({
+    timestamp: Date.now(),
+    agent: 'claude',
+    taskId: taskId ?? `claude-${sessionClaudeMessages}`,
+    success: true,
+  }).catch(() => {}); // fire-and-forget
 }
 
 /**
  * Record a Codex task against the budget.
+ * Persists to JSONL file (fire-and-forget).
  */
-export function recordCodexTask(): void {
-  usage.codexTasks++;
+export function recordCodexTask(taskId?: string, success: boolean = true): void {
+  sessionCodexTasks++;
+  appendUsageRecord({
+    timestamp: Date.now(),
+    agent: 'codex',
+    taskId: taskId ?? `codex-${sessionCodexTasks}`,
+    success,
+  }).catch(() => {}); // fire-and-forget
 }
 
 /**
  * Map usage percentage to a capacity label.
  */
-function capacityFromPct(pct: number): 'high' | 'medium' | 'low' | 'exhausted' {
-  if (pct >= 0.6) return 'high';
-  if (pct >= 0.3) return 'medium';
-  if (pct > 0) return 'low';
-  return 'exhausted';
+function pctToCapacity(pct: number): 'high' | 'medium' | 'low' | 'exhausted' {
+  if (pct >= 95) return 'exhausted';
+  if (pct >= 75) return 'low';
+  if (pct >= 50) return 'medium';
+  return 'high';
 }
 
 /**
- * Get the current budget status for all agents.
- *
- * @returns Combined budget status
+ * Generate budget warnings based on usage thresholds.
  */
-export async function getBudgetStatus(): Promise<BudgetStatus> {
+function generateWarnings(thresholds: number[], claudePct: number, codexPct: number, _tier: string): BudgetWarning[] {
+  const warnings: BudgetWarning[] = [];
+
+  for (const threshold of thresholds) {
+    if (claudePct >= threshold) {
+      warnings.push({
+        level: threshold >= 90 ? 'critical' : threshold >= 75 ? 'warn' : 'info',
+        threshold,
+        agent: 'claude',
+        message: `Claude ${Math.round(claudePct)}% used — ${threshold >= 90 ? 'Codex 전용 모드 권장' : threshold >= 75 ? 'Codex 우선 라우팅 권장' : '현재 페이스 모니터링 중'}`,
+        usagePct: claudePct,
+      });
+    }
+    if (codexPct >= threshold) {
+      warnings.push({
+        level: threshold >= 90 ? 'critical' : threshold >= 75 ? 'warn' : 'info',
+        threshold,
+        agent: 'codex',
+        message: `Codex ${Math.round(codexPct)}% used`,
+        usagePct: codexPct,
+      });
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Get the current budget status for all agents, including warnings.
+ *
+ * @returns Combined budget status with warnings
+ */
+export async function getBudgetStatus(): Promise<BudgetStatus & { warnings: BudgetWarning[] }> {
   const config = await loadConfig();
-  const tier: TierName = config.tier;
+  const tier = config.tier;
   const limits = TIER_LIMITS[tier];
 
-  const claudeEstimate = estimateRemainingBudget(tier, usage.claudeMessages, usage.windowStart);
-  const codexRemaining = Math.max(0, limits.codexTasksDay - usage.codexTasks);
-  const codexPct = limits.codexTasksDay === Infinity ? 1.0 : (limits.codexTasksDay > 0 ? codexRemaining / limits.codexTasksDay : 0);
+  // Get usage from the current 5hr window
+  const fiveHoursMs = 5 * 60 * 60 * 1000;
+  const windowUsage = await getUsageSummary(fiveHoursMs);
 
-  const claudeBudget: AgentBudget = {
+  // Calculate percentages
+  const claudePct = limits.claudeMsg5hr > 0 ? (windowUsage.claude / limits.claudeMsg5hr) * 100 : 0;
+  const codexPct = limits.codexTasksDay < Infinity ? (windowUsage.codex / limits.codexTasksDay) * 100 : 0;
+
+  // Generate warnings
+  const warnings = generateWarnings(config.budget.warnings, claudePct, codexPct, tier);
+
+  // Build response
+  const claude: AgentBudget = {
     agent: 'claude',
     monthlyCost: config.claude.cost,
-    usagePercent: Math.round((1 - claudeEstimate.pct) * 100),
-    tasksCompleted: usage.claudeMessages,
-    remainingCapacity: capacityFromPct(claudeEstimate.pct),
+    usagePercent: Math.round(claudePct),
+    tasksCompleted: windowUsage.claude,
+    remainingCapacity: pctToCapacity(claudePct),
   };
 
-  const codexBudget: AgentBudget = {
+  const codex: AgentBudget = {
     agent: 'codex',
     monthlyCost: config.codex.cost,
-    usagePercent: Math.round((1 - codexPct) * 100),
-    tasksCompleted: usage.codexTasks,
-    remainingCapacity: capacityFromPct(codexPct),
+    usagePercent: Math.round(codexPct),
+    tasksCompleted: windowUsage.codex,
+    remainingCapacity: pctToCapacity(codexPct),
   };
 
-  // Determine active warnings
-  const claudeUsedPct = (1 - claudeEstimate.pct) * 100;
-  const activeWarnings = config.budget.warnings.filter(
-    (threshold) => claudeUsedPct >= threshold
-  );
-
-  // Period dates (5-hour window)
-  const periodStart = new Date(usage.windowStart).toISOString();
-  const periodEnd = new Date(usage.windowStart + 5 * 60 * 60 * 1000).toISOString();
-
   return {
-    claude: claudeBudget,
-    codex: codexBudget,
+    claude,
+    codex,
     currentBias: config.routing.bias,
-    activeWarnings,
-    periodStart,
-    periodEnd,
+    activeWarnings: warnings.map(w => w.threshold),
+    periodStart: new Date(Date.now() - fiveHoursMs).toISOString(),
+    periodEnd: new Date().toISOString(),
+    warnings,
   };
 }
 
@@ -115,12 +147,22 @@ export async function getAgentBudget(agent: RouteTarget): Promise<AgentBudget> {
  * Record a task completion against the budget.
  *
  * @param agent - The agent that completed the task
- * @param _taskId - The task identifier (reserved for future use)
+ * @param taskId - The task identifier
  */
-export async function recordTask(agent: RouteTarget, _taskId: string): Promise<void> {
+export async function recordTask(agent: RouteTarget, taskId: string): Promise<void> {
   if (agent === 'claude') {
-    recordClaudeMessage();
+    recordClaudeMessage(taskId);
   } else {
-    recordCodexTask();
+    recordCodexTask(taskId);
   }
+}
+
+/**
+ * Get current budget warnings.
+ *
+ * @returns Array of active budget warnings
+ */
+export async function getWarnings(): Promise<BudgetWarning[]> {
+  const status = await getBudgetStatus();
+  return status.warnings;
 }

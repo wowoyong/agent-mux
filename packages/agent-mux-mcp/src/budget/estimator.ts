@@ -79,3 +79,15 @@ export function estimateCost(signals: TaskSignals, target: RouteTarget): CostEst
     factors,
   };
 }
+
+/**
+ * Check if usage has crossed any warning thresholds.
+ *
+ * @param usagePct - Current usage percentage (0-100)
+ * @param thresholds - Warning thresholds to check against
+ * @returns The highest crossed threshold, or null if none crossed
+ */
+export function shouldWarn(usagePct: number, thresholds: number[]): number | null {
+  const crossed = thresholds.filter(t => usagePct >= t);
+  return crossed.length > 0 ? Math.max(...crossed) : null;
+}

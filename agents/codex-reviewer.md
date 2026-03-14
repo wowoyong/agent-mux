@@ -160,6 +160,50 @@ Present the review summary to the user for final approval.
   Proceed with Claude fallback? (y/n)
 ```
 
+## Automated ReviewResult Interpretation
+
+When a `ReviewResult` is provided from the automated verification system, interpret it as follows:
+
+### ReviewResult Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `passed` | boolean | Overall pass/fail -- if `false`, the review failed |
+| `strategy` | `'tests' \| 'lint' \| 'diff-review' \| 'none'` | Which verification strategy was used |
+| `testsRan` | boolean | Whether tests were executed |
+| `testsPassed` | boolean | Whether tests passed (only meaningful if `testsRan` is true) |
+| `typecheckPassed` | boolean | Whether TypeScript typecheck passed |
+| `lintPassed` | boolean | Whether lint checks passed |
+| `diffSummary` | string | Git diff --stat summary of changes |
+| `issues` | string[] | List of specific failure messages |
+| `stdout` | string | Combined stdout from verification commands |
+| `stderr` | string | Combined stderr from verification commands |
+
+### Decision Logic
+
+**Auto-approve** (no manual review needed):
+- `passed === true` AND strategy is `tests` or `lint`
+- All automated checks passed, safe to merge
+
+**Requires manual review**:
+- `passed === true` AND strategy is `diff-review`
+- Automated checks were skipped; perform Stage 3 (Code Quality Review) manually
+
+**Auto-reject** (recommend retry or Claude fallback):
+- `passed === false` regardless of strategy
+- Check `issues[]` for specific failure reasons
+- If `typecheckPassed === false`: type errors need fixing
+- If `testsPassed === false`: tests are failing
+- If `lintPassed === false`: code style issues
+
+### Retry Behavior
+
+When `passed === false`, the retry chain in `retry.ts` will automatically:
+1. Mark the spawn as failed
+2. Append review issues to the error context
+3. Retry with the accumulated error context so Codex can fix the issues
+4. After exhausting retries, escalate to Claude
+
 ## Integration with Sibling Plugins
 
 ### architecture-enforcer (if detected)

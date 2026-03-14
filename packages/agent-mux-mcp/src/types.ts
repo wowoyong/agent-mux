@@ -345,3 +345,61 @@ export interface DetectedPlugin {
   /** Whether the plugin is available */
   available: boolean;
 }
+
+// ─── Retry & Escalation ─────────────────────────────────────────────
+
+export interface RetryContext {
+  attempt: number;
+  maxAttempts: number;
+  previousErrors: string[];
+  previousDeniedFiles: string[];
+  originalPrompt: string;
+}
+
+export interface EscalationResult {
+  finalResult: SpawnCodexOutput;
+  retryCount: number;
+  escalatedToClaude: boolean;
+  escalationReason?: string;
+  retryHistory: Array<{
+    attempt: number;
+    exitCode: number;
+    error: string;
+    deniedFiles: string[];
+  }>;
+}
+
+// ─── Budget Persistence ─────────────────────────────────────────────
+
+export interface UsageRecord {
+  timestamp: number;
+  agent: RouteTarget;
+  taskId: string;
+  estimatedTokens?: number;
+  success: boolean;
+}
+
+export interface BudgetWarning {
+  level: 'info' | 'warn' | 'critical';
+  threshold: number;       // e.g. 50, 75, 90
+  agent: RouteTarget;
+  message: string;
+  usagePct: number;
+}
+
+// ─── Code Review ────────────────────────────────────────────────────
+
+export type VerifyStrategy = 'tests' | 'lint' | 'diff-review' | 'none';
+
+export interface ReviewResult {
+  passed: boolean;
+  strategy: VerifyStrategy;
+  testsRan: boolean;
+  testsPassed: boolean;
+  typecheckPassed: boolean;
+  lintPassed: boolean;
+  diffSummary: string;
+  issues: string[];
+  stdout: string;
+  stderr: string;
+}

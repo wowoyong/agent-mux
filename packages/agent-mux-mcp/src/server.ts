@@ -33,9 +33,42 @@ export function createServer(): McpServer {
       denyList: z.array(z.string()).optional().describe('File patterns Codex is not allowed to modify'),
     },
     async (params) => {
-      const result = await spawnCodex(params);
+      const escalation = await spawnCodex(params);
+      const { finalResult, retryCount, escalatedToClaude, escalationReason, retryHistory } = escalation;
+
+      const lines: string[] = [];
+      lines.push(`Task ${finalResult.taskId}: ${finalResult.success ? 'SUCCESS' : 'FAILED'}`);
+      lines.push(`Branch: ${finalResult.branchName}`);
+      lines.push(`Worktree: ${finalResult.worktreePath}`);
+      lines.push(`Duration: ${finalResult.durationMs}ms | Exit code: ${finalResult.exitCode}`);
+      lines.push(`Files modified: ${finalResult.filesModified.length > 0 ? finalResult.filesModified.join(', ') : 'none'}`);
+      if (finalResult.deniedFiles.length > 0) {
+        lines.push(`Denied files: ${finalResult.deniedFiles.join(', ')}`);
+      }
+      lines.push(`Retries: ${retryCount}`);
+      if (escalatedToClaude) {
+        lines.push(`ESCALATED TO CLAUDE: ${escalationReason}`);
+      }
+      if (retryHistory.length > 0) {
+        lines.push('');
+        lines.push('Retry history:');
+        for (const entry of retryHistory) {
+          lines.push(`  Attempt ${entry.attempt}: exit=${entry.exitCode} error=${entry.error || 'none'} denied=[${entry.deniedFiles.join(', ')}]`);
+        }
+      }
+      if (finalResult.stdout) {
+        lines.push('');
+        lines.push('--- stdout ---');
+        lines.push(finalResult.stdout.slice(0, 2000));
+      }
+      if (finalResult.stderr) {
+        lines.push('');
+        lines.push('--- stderr ---');
+        lines.push(finalResult.stderr.slice(0, 1000));
+      }
+
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
       };
     }
   );

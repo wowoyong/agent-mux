@@ -1,24 +1,52 @@
 {
   "name": "agent-mux-mcp",
   "version": "0.1.0",
-  "description": "MCP server for agent-mux — routes tasks between Claude Code and Codex CLI",
-  "main": "dist/server.js",
+  "description": "MCP server for agent-mux — routes tasks between Claude Code and Codex CLI based on complexity, optimizing AI coding subscription costs",
+  "main": "dist/src/server.js",
   "bin": {
     "agent-mux-mcp": "./dist/bin/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "claude-code", "claude-code-plugin", "codex", "agent-routing",
-    "multi-agent", "task-routing", "claude-codex", "mcp", "mcp-server",
-    "ai-coding", "subscription-optimizer"
+    "claude-code",
+    "claude-code-plugin",
+    "codex",
+    "codex-cli",
+    "agent-routing",
+    "multi-agent",
+    "task-routing",
+    "claude-codex",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "ai-coding",
+    "ai-agent",
+    "subscription-optimizer",
+    "cost-optimization",
+    "agent-mux",
+    "openai-codex"
   ],
   "author": "jojaeyong",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wowoyong/agent-mux.git",
+    "directory": "packages/agent-mux-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/wowoyong/agent-mux/issues"
+  },
+  "homepage": "https://github.com/wowoyong/agent-mux#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0"
   },

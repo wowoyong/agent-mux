@@ -16,13 +16,13 @@ import { analyzeTask } from './classifier.js';
  */
 export function shouldDecompose(taskDescription: string, signals: TaskSignals): boolean {
   const multipleOps = /\band\b.*\band\b/i.test(taskDescription) ||
-                      /\d+\.\s+.+\n\d+\.\s+/m.test(taskDescription) ||
+                      /\d+[\.\)]\s+.+[\n\s]+\d+[\.\)]\s+/m.test(taskDescription) ||
                       taskDescription.split(/[,;]/).length >= 3;
 
-  const highFileCount = signals.estimatedFiles > 8;
+  const highFileCount = signals.estimatedFiles > 5;
   const mixedSignals = hasMixedSignals(signals);
 
-  return (multipleOps && highFileCount) || (multipleOps && mixedSignals);
+  return (multipleOps && highFileCount) || (multipleOps && mixedSignals) || highFileCount;
 }
 
 /**

@@ -93,13 +93,16 @@ export async function getBudgetStatus(): Promise<BudgetStatus & { warnings: Budg
   const tier = config.tier;
   const limits = TIER_LIMITS[tier];
 
-  // Get usage from the current 5hr window
+  // Get usage from the current 5hr window (disk) + session counters (memory)
+  // Use Math.max to avoid race condition where disk writes haven't flushed yet
   const fiveHoursMs = 5 * 60 * 60 * 1000;
   const windowUsage = await getUsageSummary(fiveHoursMs);
+  const claudeUsed = Math.max(windowUsage.claude, sessionClaudeMessages);
+  const codexUsed = Math.max(windowUsage.codex, sessionCodexTasks);
 
   // Calculate percentages
-  const claudePct = limits.claudeMsg5hr > 0 ? (windowUsage.claude / limits.claudeMsg5hr) * 100 : 0;
-  const codexPct = limits.codexTasksDay < Infinity ? (windowUsage.codex / limits.codexTasksDay) * 100 : 0;
+  const claudePct = limits.claudeMsg5hr > 0 ? (claudeUsed / limits.claudeMsg5hr) * 100 : 0;
+  const codexPct = limits.codexTasksDay < Infinity ? (codexUsed / limits.codexTasksDay) * 100 : 0;
 
   // Generate warnings
   const warnings = generateWarnings(config.budget.warnings, claudePct, codexPct, tier);
@@ -109,7 +112,7 @@ export async function getBudgetStatus(): Promise<BudgetStatus & { warnings: Budg
     agent: 'claude',
     monthlyCost: config.claude.cost,
     usagePercent: Math.round(claudePct),
-    tasksCompleted: windowUsage.claude,
+    tasksCompleted: claudeUsed,
     remainingCapacity: pctToCapacity(claudePct),
   };
 
@@ -117,7 +120,7 @@ export async function getBudgetStatus(): Promise<BudgetStatus & { warnings: Budg
     agent: 'codex',
     monthlyCost: config.codex.cost,
     usagePercent: Math.round(codexPct),
-    tasksCompleted: windowUsage.codex,
+    tasksCompleted: codexUsed,
     remainingCapacity: pctToCapacity(codexPct),
   };
 

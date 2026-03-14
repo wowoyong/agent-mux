@@ -1,0 +1,33 @@
+# agent-mux configuration
+# Run /mux-setup to generate this file interactively
+schema_version: 1
+
+tier: budget  # budget | standard | premium | power
+
+claude:
+  plan: pro           # pro | max_5x | max_20x
+  cost: 20
+
+codex:
+  plan: plus           # plus | pro
+  cost: 20
+  mode: local          # local | cloud_and_local
+
+routing:
+  engine: local        # local | hybrid
+  bias: codex          # codex | balanced | claude | adaptive
+  split:
+    claude: 30
+    codex: 70
+  escalation:
+    enabled: true
+    strategy: fix      # fix | fix_then_redo | full
+    max_retries: 1
+
+budget:
+  warnings: [50, 75, 90]
+
+# Optional: custom deny-list patterns (appended to defaults)
+# deny_list:
+#   - "*.secret"
+#   - "internal/**"

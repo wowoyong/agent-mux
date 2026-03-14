@@ -1,0 +1,35 @@
+{
+  "name": "agent-mux",
+  "version": "0.1.0",
+  "description": "Route tasks between Claude Code and Codex CLI — Subscription Efficiency Maximizer",
+  "skills": [
+    {
+      "name": "mux",
+      "path": "skills/mux/SKILL.md",
+      "triggers": ["/mux", "/mux-status", "/mux-config", "/mux-setup"]
+    }
+  ],
+  "commands": [
+    {"name": "mux", "path": "commands/mux.md", "description": "Route and execute a task via Claude or Codex"},
+    {"name": "mux-status", "path": "commands/mux-status.md", "description": "Show budget and task status"},
+    {"name": "mux-config", "path": "commands/mux-config.md", "description": "View or modify routing configuration"},
+    {"name": "mux-setup", "path": "commands/mux-setup.md", "description": "Interactive tier setup wizard"}
+  ],
+  "agents": [
+    {"name": "task-router", "path": "agents/task-router.md", "description": "Analyze and route tasks to Claude or Codex"},
+    {"name": "codex-spawner", "path": "agents/codex-spawner.md", "description": "Spawn and manage Codex CLI processes"},
+    {"name": "codex-reviewer", "path": "agents/codex-reviewer.md", "description": "Review Codex output diffs for quality"},
+    {"name": "task-decomposer", "path": "agents/task-decomposer.md", "description": "Decompose large tasks into subtasks"}
+  ],
+  "mcp": {
+    "server": "agent-mux-mcp",
+    "transport": "stdio",
+    "entrypoint": "npx agent-mux-mcp",
+    "tools": [
+      {"name": "spawn_codex", "description": "Spawn Codex CLI for a task in isolated worktree"},
+      {"name": "check_budget", "description": "Check remaining Claude and Codex budget"},
+      {"name": "get_mux_status", "description": "Get full orchestration status"}
+    ]
+  },
+  "license": "MIT"
+}

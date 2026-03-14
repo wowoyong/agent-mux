@@ -1,0 +1,19 @@
+{
+  "name": "wowoyong-agent-mux",
+  "owner": {
+    "name": "jojaeyong",
+    "url": "https://github.com/wowoyong"
+  },
+  "metadata": {
+    "description": "agent-mux — Route tasks between Claude Code and Codex CLI",
+    "homepage": "https://github.com/wowoyong/agent-mux"
+  },
+  "plugins": [
+    {
+      "name": "agent-mux",
+      "version": "0.3.0",
+      "source": "./plugin",
+      "description": "Route tasks between Claude Code and Codex CLI — Subscription Efficiency Maximizer"
+    }
+  ]
+}

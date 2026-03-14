@@ -3,6 +3,7 @@
  * Checks remaining budget for Claude and/or Codex subscriptions.
  */
 
+import { getBudgetStatus, getAgentBudget } from '../budget/tracker.js';
 import type { CheckBudgetToolInput, BudgetStatus, AgentBudget } from '../types.js';
 
 /**
@@ -12,6 +13,8 @@ import type { CheckBudgetToolInput, BudgetStatus, AgentBudget } from '../types.j
  * @returns Budget status for the requested agent(s)
  */
 export async function checkBudget(input: CheckBudgetToolInput): Promise<BudgetStatus | AgentBudget> {
-  // TODO: Implement budget checking
-  throw new Error('Not implemented: checkBudget');
+  if (input.agent) {
+    return getAgentBudget(input.agent);
+  }
+  return getBudgetStatus();
 }

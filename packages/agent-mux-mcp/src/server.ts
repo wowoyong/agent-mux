@@ -25,10 +25,12 @@ export function createServer(): McpServer {
     'Spawn Codex CLI for a task in isolated worktree',
     {
       prompt: z.string().describe('The task prompt to send to Codex'),
-      workdir: z.string().optional().describe('Working directory for Codex'),
-      useWorktree: z.boolean().optional().describe('Whether to use a git worktree for isolation'),
-      approvalMode: z.enum(['suggest', 'auto-edit', 'full-auto']).optional().describe('Codex approval mode'),
-      timeoutSeconds: z.number().optional().describe('Maximum execution time in seconds'),
+      worktreePath: z.string().optional().describe('Path to the git worktree to use'),
+      timeout: z.number().optional().describe('Maximum execution time in ms (default 420000)'),
+      complexity: z.enum(['low', 'medium', 'high']).optional().describe('Task complexity hint'),
+      contextFiles: z.array(z.string()).optional().describe('Files to provide as context'),
+      verifyStrategy: z.enum(['tests', 'lint', 'diff-review', 'none']).optional().describe('Verification strategy after completion'),
+      denyList: z.array(z.string()).optional().describe('File patterns Codex is not allowed to modify'),
     },
     async (params) => {
       const result = await spawnCodex(params);

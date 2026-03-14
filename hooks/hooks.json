@@ -1,3 +1,9 @@
 {
-  "hooks": []
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "bash hooks/session-start.sh",
+      "description": "Detect Codex CLI and sibling plugins on session start"
+    }
+  ]
 }

@@ -1,21 +1,330 @@
 /**
- * Task Classifier
- * Analyzes a task description and extracts signals for routing decisions.
+ * Task Classifier & Router
+ * Analyzes task descriptions, extracts signals, and routes to Claude or Codex.
+ * Implements a 2-phase routing system:
+ *   Phase 1: Hard rules (deterministic, priority-ordered)
+ *   Phase 2: Weighted scoring with interaction modifiers and budget adjustment
  */
 
-import type { TaskSignals } from '../types.js';
+import type { TaskSignals, RouteDecision, RouteTarget, TierName } from '../types.js';
+import {
+  SIGNAL_WEIGHTS,
+  INTERACTION_MODIFIERS,
+  CONFIDENCE_THRESHOLD,
+  extractComplexity,
+  extractFilePatterns,
+} from './signals.js';
+import { HARD_RULES } from './rules.js';
+
+// ─── Keyword Patterns ───────────────────────────────────────────────
+
+/** Patterns that suggest the task is better suited for Codex */
+const CODEX_KEYWORDS: Array<{ pattern: RegExp; signal: keyof TaskSignals }> = [
+  { pattern: /write\s+(unit\s+)?tests?\s+(for|to)/i, signal: 'isTestWriting' },
+  { pattern: /create\s+(a\s+)?(new\s+)?(file|component|module)/i, signal: 'isSelfContained' },
+  { pattern: /add\s+(jsdoc|tsdoc|docstring|comments?|docs?)/i, signal: 'isDocGeneration' },
+  { pattern: /fix\s+(lint|linting|eslint|prettier|formatting)/i, signal: 'isSelfContained' },
+  { pattern: /rename\s+\w+\s+(to|as|into)/i, signal: 'isRefactoring' },
+  { pattern: /implement\s+(the\s+)?(api\s+)?endpoint/i, signal: 'isSelfContained' },
+  { pattern: /update\s+(dependencies|packages?|deps)/i, signal: 'isSelfContained' },
+  { pattern: /convert\s+\w+\s+(to|from|into)/i, signal: 'isRefactoring' },
+  { pattern: /fix\s+(this|the)\s+(bug|error|issue)/i, signal: 'isDebugging' },
+];
+
+/** Patterns that suggest the task is better suited for Claude */
+const CLAUDE_KEYWORDS: Array<{ pattern: RegExp; signal: keyof TaskSignals }> = [
+  { pattern: /architect(ure)?\s+(for|of|the)/i, signal: 'isArchitectural' },
+  { pattern: /design\s+(a\s+)?(system|pattern|solution)/i, signal: 'isArchitectural' },
+  { pattern: /scaffold\s+(a\s+)?(project|module|structure)/i, signal: 'isScaffolding' },
+  { pattern: /debug\s+(this|the|a)\s+(error|issue|crash)/i, signal: 'isDebugging' },
+  { pattern: /review\s+(this|the|my)\s+(code|pr|changes?)/i, signal: 'isCodeReview' },
+  { pattern: /explain\s+(why|how|what|the)/i, signal: 'needsConversationContext' },
+  { pattern: /refactor\s+(multiple|several|all|across)/i, signal: 'isMultiFileOrchestration' },
+  { pattern: /security\s+(audit|review|scan|check)/i, signal: 'isSecurityAudit' },
+  { pattern: /best\s+(approach|way|strategy|practice)/i, signal: 'isArchitectural' },
+];
+
+// ─── Signal Extraction ──────────────────────────────────────────────
+
+/**
+ * Analyze a task description and extract all routing signals.
+ * This is a local, 0-token operation using keyword matching.
+ */
+export function analyzeTask(taskDescription: string): TaskSignals {
+  const complexity = extractComplexity(taskDescription);
+
+  // Initialize all 20 signals
+  const signals: TaskSignals = {
+    // Claude-favoring (8)
+    needsMCP: false,
+    needsProjectContext: false,
+    needsConversationContext: false,
+    isInteractive: false,
+    isArchitectural: false,
+    isFrontend: false,
+    isScaffolding: false,
+    isMultiFileOrchestration: false,
+    // Codex-favoring (8)
+    isCodeReview: false,
+    isSecurityAudit: false,
+    isSelfContained: false,
+    isTestWriting: false,
+    isDocGeneration: false,
+    isDebugging: false,
+    isRefactoring: false,
+    isTerminalTask: false,
+    // Meta (4)
+    estimatedFiles: 1,
+    estimatedComplexity: complexity,
+    isVerifiable: false,
+    isUrgent: false,
+  };
+
+  const lower = taskDescription.toLowerCase();
+
+  // Run Codex keyword patterns
+  for (const kw of CODEX_KEYWORDS) {
+    if (kw.pattern.test(taskDescription)) {
+      (signals as unknown as Record<string, unknown>)[kw.signal] = true;
+    }
+  }
+
+  // Run Claude keyword patterns
+  for (const kw of CLAUDE_KEYWORDS) {
+    if (kw.pattern.test(taskDescription)) {
+      (signals as unknown as Record<string, unknown>)[kw.signal] = true;
+    }
+  }
+
+  // Additional signal detection
+
+  // MCP detection
+  if (/\bmcp\b/i.test(lower) || /\btool\s*(call|use|integration)/i.test(lower) ||
+      /\bfetch\s+(from|url|api)/i.test(lower) || /\bdatabase\s+(query|insert|update)/i.test(lower)) {
+    signals.needsMCP = true;
+  }
+
+  // Project context detection
+  if (/\bproject\b/i.test(lower) || /\bcodebase\b/i.test(lower) ||
+      /\bacross\s+(the\s+)?(project|repo|codebase)/i.test(lower) ||
+      /\bexisting\s+(code|implementation|pattern)/i.test(lower)) {
+    signals.needsProjectContext = true;
+  }
+
+  // Conversation context detection
+  if (/\b(previous|earlier|above|before|last\s+(message|response|answer))\b/i.test(lower) ||
+      /\bwe\s+(discussed|talked|mentioned)/i.test(lower) ||
+      /\bas\s+(i|we)\s+(said|mentioned)/i.test(lower)) {
+    signals.needsConversationContext = true;
+  }
+
+  // Interactive detection
+  if (/\binteractive/i.test(lower) || /\bstep[\s-]by[\s-]step/i.test(lower) ||
+      /\bwalk\s+(me\s+)?through/i.test(lower) || /\bhelp\s+me\s+(understand|figure)/i.test(lower) ||
+      /\blet'?s\s+(work|figure|think)/i.test(lower)) {
+    signals.isInteractive = true;
+  }
+
+  // Frontend detection
+  if (/\b(css|scss|style|layout|ui|ux|component|react|vue|angular|html|dom)\b/i.test(lower) ||
+      /\b(responsive|animation|render|display)\b/i.test(lower)) {
+    signals.isFrontend = true;
+  }
+
+  // Terminal task detection
+  if (/\b(cli|terminal|command[\s-]line|shell|bash|script)\b/i.test(lower) ||
+      /\b(npm|yarn|pnpm|cargo|pip)\s+(run|install|build)/i.test(lower)) {
+    signals.isTerminalTask = true;
+  }
+
+  // Verifiable detection
+  if (signals.isTestWriting || signals.isDocGeneration ||
+      /\b(test|verify|check|validate|assert)\b/i.test(lower)) {
+    signals.isVerifiable = true;
+  }
+
+  // Urgent detection
+  if (/\b(urgent|asap|immediately|critical|hotfix|production\s+(issue|bug|down))\b/i.test(lower)) {
+    signals.isUrgent = true;
+  }
+
+  // Self-contained detection (if not already set by keywords)
+  if (!signals.isSelfContained && !signals.needsProjectContext && !signals.isMultiFileOrchestration) {
+    if (/\b(single\s+file|one\s+file|this\s+file|standalone)\b/i.test(lower)) {
+      signals.isSelfContained = true;
+    }
+  }
+
+  // Estimate file count from description
+  signals.estimatedFiles = estimateFileCount(taskDescription);
+
+  return signals;
+}
+
+/**
+ * Estimate the number of files a task will touch based on description.
+ */
+function estimateFileCount(description: string): number {
+  const lower = description.toLowerCase();
+
+  // Explicit file count mentions
+  const countMatch = lower.match(/(\d+)\s+files?/);
+  if (countMatch) {
+    return Math.min(parseInt(countMatch[1], 10), 50);
+  }
+
+  // Multi-file indicators
+  if (/\b(all|every|each|multiple|several|many|across)\s+(files?|modules?|components?)/i.test(lower)) {
+    return 10;
+  }
+
+  // Single file indicators
+  if (/\b(single|one|this)\s+file/i.test(lower)) {
+    return 1;
+  }
+
+  // File patterns mentioned
+  const filePatterns = extractFilePatterns(description);
+  if (filePatterns.length > 0) {
+    return Math.max(filePatterns.length, 1);
+  }
+
+  // Default
+  return 2;
+}
+
+// ─── Async Wrapper (backward-compatible) ────────────────────────────
 
 /**
  * Classify a task by analyzing its description and extracting routing signals.
- *
- * @param description - Natural language task description
- * @param fileContext - Optional list of relevant file paths for context
- * @returns Extracted task signals
+ * Async wrapper for backward compatibility.
  */
 export async function classifyTask(
   description: string,
-  fileContext?: string[]
+  _fileContext?: string[]
 ): Promise<TaskSignals> {
-  // TODO: Implement task classification logic
-  throw new Error('Not implemented: classifyTask');
+  return analyzeTask(description);
+}
+
+// ─── 2-Phase Routing ────────────────────────────────────────────────
+
+/**
+ * Route a task to Claude or Codex using a 2-phase approach:
+ *   Phase 1: Hard rules (deterministic)
+ *   Phase 2: Weighted scoring with modifiers and budget adjustment
+ *
+ * @param signals - Extracted task signals
+ * @param tier - Current subscription tier
+ * @param claudeBudgetPct - Remaining Claude budget as fraction (0-1)
+ * @param codexBudgetPct - Remaining Codex budget as fraction (0-1)
+ * @returns Routing decision with target, confidence, and reason
+ */
+export function routeTask(
+  signals: TaskSignals,
+  tier: TierName = 'standard',
+  claudeBudgetPct: number = 1.0,
+  codexBudgetPct: number = 1.0
+): RouteDecision {
+  // Phase 1: Check hard rules in priority order
+  const sortedRules = [...HARD_RULES].sort((a, b) => a.priority - b.priority);
+  for (const rule of sortedRules) {
+    if (rule.condition(signals)) {
+      return {
+        target: rule.target,
+        confidence: 1.0,
+        reason: rule.reason,
+        signals,
+        escalated: false,
+        matchedRule: rule.id,
+      };
+    }
+  }
+
+  // Phase 2: Weighted scoring
+  let score = 0;
+  const activeSignals: string[] = [];
+
+  for (const [signal, weight] of Object.entries(SIGNAL_WEIGHTS)) {
+    const value = (signals as unknown as Record<string, unknown>)[signal];
+    if (value === true) {
+      score += weight;
+      activeSignals.push(signal);
+    }
+  }
+
+  // Apply interaction modifiers
+  const appliedModifiers: string[] = [];
+  for (const mod of INTERACTION_MODIFIERS) {
+    if (mod.condition(signals)) {
+      score += mod.adjustment;
+      appliedModifiers.push(mod.reason);
+    }
+  }
+
+  // Budget adjustment — push toward the agent with more remaining budget
+  if (claudeBudgetPct < 0.2) {
+    score += 50; // push toward Codex
+  }
+  if (codexBudgetPct < 0.2) {
+    score -= 50; // push toward Claude
+  }
+
+  // Calculate confidence as ratio of score magnitude to max possible score
+  const maxScore = Object.values(SIGNAL_WEIGHTS).reduce(
+    (sum, w) => sum + Math.abs(w),
+    0
+  );
+  const confidence = Math.min(Math.abs(score) / maxScore, 1.0);
+
+  // Determine target from score direction
+  let target: RouteTarget = score > 0 ? 'codex' : 'claude';
+
+  // Tiebreaker for ambiguous cases (low confidence)
+  if (confidence < CONFIDENCE_THRESHOLD) {
+    target = tier === 'budget' ? 'codex' : 'claude';
+    return {
+      target,
+      confidence,
+      reason: buildReason(target, activeSignals, appliedModifiers, true),
+      signals,
+      escalated: false,
+    };
+  }
+
+  return {
+    target,
+    confidence,
+    reason: buildReason(target, activeSignals, appliedModifiers, false),
+    signals,
+    escalated: false,
+  };
+}
+
+/**
+ * Build a human-readable reason string explaining the routing decision.
+ */
+function buildReason(
+  target: RouteTarget,
+  activeSignals: string[],
+  appliedModifiers: string[],
+  wasTiebroken: boolean
+): string {
+  const parts: string[] = [];
+
+  if (wasTiebroken) {
+    parts.push(`Low confidence — defaulted to ${target}`);
+  } else {
+    parts.push(`Routed to ${target}`);
+  }
+
+  if (activeSignals.length > 0) {
+    const signalNames = activeSignals.slice(0, 4).join(', ');
+    parts.push(`active signals: ${signalNames}`);
+  }
+
+  if (appliedModifiers.length > 0) {
+    parts.push(`modifiers: ${appliedModifiers.join('; ')}`);
+  }
+
+  return parts.join(' | ');
 }

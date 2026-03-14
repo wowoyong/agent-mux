@@ -13,32 +13,55 @@ export type RoutingEngine = 'local' | 'hybrid';
 export type RoutingBias = 'codex' | 'balanced' | 'claude' | 'adaptive';
 export type EscalationStrategy = 'fix' | 'fix_then_redo' | 'full';
 
-// ─── Task Signals ────────────────────────────────────────────────────
+// ─── Task Signals (20-signal spec) ──────────────────────────────────
 
 /** Signals extracted from a task description to inform routing decisions */
 export interface TaskSignals {
-  /** Natural language description of the task */
-  description: string;
-  /** Estimated complexity: low, medium, high */
-  complexity: 'low' | 'medium' | 'high';
-  /** Whether the task requires multi-file coordination */
-  multiFile: boolean;
-  /** Whether the task needs deep architectural reasoning */
-  needsReasoning: boolean;
-  /** Whether the task involves UI/UX work */
-  isUI: boolean;
-  /** Whether the task is a simple refactor or rename */
-  isRefactor: boolean;
-  /** Whether the task involves test generation */
-  isTestGen: boolean;
-  /** Whether the task modifies security-sensitive files */
-  isSensitive: boolean;
+  // Claude-favoring (8)
+  /** Whether the task requires MCP tool access */
+  needsMCP: boolean;
+  /** Whether the task needs project-wide context */
+  needsProjectContext: boolean;
+  /** Whether the task needs conversation context */
+  needsConversationContext: boolean;
+  /** Whether the task requires interactive dialogue */
+  isInteractive: boolean;
+  /** Whether the task involves architectural decisions */
+  isArchitectural: boolean;
+  /** Whether the task involves frontend/UI work */
+  isFrontend: boolean;
+  /** Whether the task involves scaffolding new projects/files */
+  isScaffolding: boolean;
+  /** Whether the task requires multi-file orchestration */
+  isMultiFileOrchestration: boolean;
+
+  // Codex-favoring (8)
+  /** Whether the task is a code review */
+  isCodeReview: boolean;
+  /** Whether the task is a security audit */
+  isSecurityAudit: boolean;
+  /** Whether the task is self-contained to a few files */
+  isSelfContained: boolean;
+  /** Whether the task involves writing tests */
+  isTestWriting: boolean;
+  /** Whether the task involves generating documentation */
+  isDocGeneration: boolean;
+  /** Whether the task involves debugging */
+  isDebugging: boolean;
+  /** Whether the task involves refactoring */
+  isRefactoring: boolean;
+  /** Whether the task is a terminal/CLI task */
+  isTerminalTask: boolean;
+
+  // Meta (4)
   /** Estimated number of files affected */
   estimatedFiles: number;
-  /** Detected programming languages involved */
-  languages: string[];
-  /** File patterns relevant to the task */
-  filePatterns: string[];
+  /** Estimated complexity level */
+  estimatedComplexity: 'low' | 'medium' | 'high';
+  /** Whether the result can be verified automatically */
+  isVerifiable: boolean;
+  /** Whether the task is urgent */
+  isUrgent: boolean;
 }
 
 // ─── Routing ─────────────────────────────────────────────────────────
@@ -78,44 +101,76 @@ export interface RoutingRule {
   enabled: boolean;
 }
 
+// ─── JSONL Events (Codex CLI v0.112.0) ──────────────────────────────
+
+/** Event types emitted by Codex CLI in JSONL format */
+export type JsonlEventType =
+  | 'thread.started'
+  | 'turn.started'
+  | 'turn.completed'
+  | 'item.started'
+  | 'item.completed';
+
+/** A single JSONL event from Codex CLI */
+export interface JsonlEvent {
+  /** Event type */
+  type: JsonlEventType;
+  /** Item data if applicable */
+  item?: {
+    type: string;
+    content?: string;
+  };
+  /** Token usage if applicable */
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+  };
+}
+
 // ─── Codex Spawning ──────────────────────────────────────────────────
 
 /** Input for spawning a Codex CLI process */
 export interface SpawnCodexInput {
   /** The task prompt to send to Codex */
   prompt: string;
-  /** Working directory for Codex */
-  workdir: string;
-  /** Whether to use a git worktree for isolation */
-  useWorktree: boolean;
-  /** Optional branch name for the worktree */
-  branch?: string;
-  /** Codex approval mode */
-  approvalMode: 'suggest' | 'auto-edit' | 'full-auto';
-  /** Maximum execution time in seconds */
-  timeoutSeconds: number;
-  /** Optional deny-list patterns */
-  denyPatterns?: string[];
+  /** Path to the git worktree to use */
+  worktreePath?: string;
+  /** Maximum execution time in ms (default 420000 = 7 minutes) */
+  timeout?: number;
+  /** Task complexity hint */
+  complexity?: 'low' | 'medium' | 'high';
+  /** Files to provide as context */
+  contextFiles?: string[];
+  /** Verification strategy after completion */
+  verifyStrategy?: 'tests' | 'lint' | 'diff-review' | 'none';
+  /** File patterns Codex is not allowed to modify */
+  denyList?: string[];
 }
 
 /** Output from a completed Codex CLI process */
 export interface SpawnCodexOutput {
   /** Whether the task completed successfully */
   success: boolean;
-  /** Exit code of the Codex process */
-  exitCode: number;
-  /** Unified diff of all changes */
-  diff: string;
+  /** Unique task identifier */
+  taskId: string;
+  /** Path to the worktree used */
+  worktreePath: string;
+  /** Git branch name created */
+  branchName: string;
   /** Files that were modified */
-  modifiedFiles: string[];
+  filesModified: string[];
   /** Stdout from Codex */
   stdout: string;
   /** Stderr from Codex */
   stderr: string;
+  /** Exit code of the Codex process */
+  exitCode: number;
   /** Execution time in milliseconds */
   durationMs: number;
-  /** The worktree path if one was used */
-  worktreePath?: string;
+  /** Files that were denied (attempted but blocked) */
+  deniedFiles: string[];
+  /** Number of JSONL events captured */
+  jsonlEvents: number;
 }
 
 // ─── Budget ──────────────────────────────────────────────────────────
@@ -191,6 +246,35 @@ export interface MuxConfig {
   denyList?: string[];
 }
 
+// ─── Deny List ───────────────────────────────────────────────────────
+
+/** Default deny-list patterns for files Codex should not modify */
+export const DEFAULT_DENY_LIST: string[] = [
+  '.github/workflows/*',
+  '.env*',
+  '*.pem',
+  '*.key',
+  '*.p12',
+  '*.jks',
+  'package.json',
+  'package-lock.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
+  'Gemfile.lock',
+  'poetry.lock',
+  'go.sum',
+  'Cargo.lock',
+  'Dockerfile',
+  'docker-compose*.yml',
+  'Makefile',
+  '.npmrc',
+  '.pypirc',
+  'Jenkinsfile',
+  '.circleci/*',
+  '.gitlab-ci.yml',
+  'CODEOWNERS',
+];
+
 // ─── Orchestration Status ────────────────────────────────────────────
 
 /** Status of a single task in the orchestration queue */
@@ -231,10 +315,12 @@ export interface MuxStatus {
 /** Input schema for the spawn_codex MCP tool */
 export interface SpawnCodexToolInput {
   prompt: string;
-  workdir?: string;
-  useWorktree?: boolean;
-  approvalMode?: 'suggest' | 'auto-edit' | 'full-auto';
-  timeoutSeconds?: number;
+  worktreePath?: string;
+  timeout?: number;
+  complexity?: 'low' | 'medium' | 'high';
+  contextFiles?: string[];
+  verifyStrategy?: 'tests' | 'lint' | 'diff-review' | 'none';
+  denyList?: string[];
 }
 
 /** Input schema for the check_budget MCP tool */
@@ -246,4 +332,16 @@ export interface CheckBudgetToolInput {
 export interface GetMuxStatusToolInput {
   includeHistory?: boolean;
   limit?: number;
+}
+
+// ─── Detected Plugin ─────────────────────────────────────────────────
+
+/** A detected sibling plugin */
+export interface DetectedPlugin {
+  /** Plugin name */
+  name: string;
+  /** Path to the plugin */
+  path: string;
+  /** Whether the plugin is available */
+  available: boolean;
 }

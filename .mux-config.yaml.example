@@ -9,23 +9,34 @@ claude:
   cost: 20
 
 codex:
-  plan: plus           # plus | pro
+  plan: plus          # plus | pro
   cost: 20
-  mode: local          # local | cloud_and_local
+  mode: local         # local | cloud_and_local
 
 routing:
-  engine: local        # local | hybrid
-  bias: codex          # codex | balanced | claude | adaptive
+  engine: local       # local | hybrid
+  bias: codex         # codex | balanced | claude | adaptive
   split:
     claude: 30
     codex: 70
   escalation:
     enabled: true
-    strategy: fix      # fix | fix_then_redo | full
+    strategy: fix     # fix | fix_then_redo | full
     max_retries: 1
+
+batch_mode:
+  enabled: true
+  queue_timeout_sec: 30
+
+conservation:
+  enabled: true
+  codex_first_on_uncertain: true
 
 budget:
   warnings: [50, 75, 90]
+  degradation:
+    on_claude_exhausted: codex_only
+    on_both_exhausted: queue_and_wait
 
 # Optional: custom deny-list patterns (appended to defaults)
 # deny_list:

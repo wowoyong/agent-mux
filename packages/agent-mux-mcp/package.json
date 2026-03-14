@@ -4,7 +4,7 @@
   "description": "MCP server for agent-mux — routes tasks between Claude Code and Codex CLI based on complexity, optimizing AI coding subscription costs",
   "main": "dist/src/server.js",
   "bin": {
-    "agent-mux-mcp": "./dist/bin/cli.js"
+    "agent-mux-mcp": "dist/bin/cli.js"
   },
   "files": [
     "dist",
@@ -40,7 +40,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wowoyong/agent-mux.git",
+    "url": "git+https://github.com/wowoyong/agent-mux.git",
     "directory": "packages/agent-mux-mcp"
   },
   "bugs": {

@@ -8,44 +8,21 @@ import { getBudgetStatus } from '../budget/tracker.js';
 import { TIER_LIMITS } from '../config/tiers.js';
 
 export async function startRepl(): Promise<void> {
-  const config = await loadConfig();
-  const budget = await getBudgetStatus();
-  const limits = TIER_LIMITS[config.tier];
-
-  // Header
-  console.log(
-    chalk.bold(
-      `\n  ⚡ agent-mux v0.3.1 | ${config.tier} tier ($${config.claude.cost + config.codex.cost}/mo)`
-    )
-  );
-  printBudgetLine(budget, limits);
-  console.log();
-  console.log(chalk.gray('  Type a task to route, or a command:'));
-  console.log(chalk.gray('    /status  — budget dashboard'));
-  console.log(chalk.gray('    /go      — auto-execute mode'));
-  console.log(chalk.gray('    /config  — show configuration'));
-  console.log(chalk.gray('    /help    — show help'));
-  console.log(chalk.gray('    /quit    — exit'));
-  console.log();
-
+  // Set up readline and register handlers IMMEDIATELY to capture piped stdin.
+  // Use terminal: false to prevent readline double-echo on macOS.
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: 'mux> ',
-    historySize: 100,
-    terminal: process.stdin.isTTY ?? false,
+    terminal: false,
   });
 
-  rl.prompt();
+  // Queue lines and process sequentially; buffer lines until init completes
+  const lineQueue: string[] = [];
+  let processing = false;
+  let inputClosed = false;
+  let initialized = false;
 
-  rl.on('line', async (line: string) => {
-    const input = line.trim();
-
-    if (!input) {
-      rl.prompt();
-      return;
-    }
-
+  async function processLine(input: string): Promise<void> {
     try {
       if (input === '/quit' || input === '/exit' || input === '/q') {
         console.log(chalk.gray('\n  Bye!\n'));
@@ -87,14 +64,72 @@ export async function startRepl(): Promise<void> {
         // Budget display is best-effort
       }
     }
+  }
 
-    console.log();
-    rl.prompt();
+  async function drainQueue(): Promise<void> {
+    if (processing || !initialized) return;
+    processing = true;
+
+    while (lineQueue.length > 0) {
+      const input = lineQueue.shift()!;
+      if (!input) {
+        process.stdout.write('mux> ');
+        continue;
+      }
+      await processLine(input);
+      console.log();
+      process.stdout.write('mux> ');
+    }
+
+    processing = false;
+
+    // If input stream closed while processing, exit now
+    if (inputClosed) {
+      process.exit(0);
+    }
+  }
+
+  // Register event handlers IMMEDIATELY so piped input is captured
+  rl.on('line', (line: string) => {
+    lineQueue.push(line.trim());
+    void drainQueue();
   });
 
   rl.on('close', () => {
-    process.exit(0);
+    inputClosed = true;
+    // If not processing and queue is empty, exit. Otherwise drainQueue will exit when done.
+    if (!processing && lineQueue.length === 0) {
+      process.exit(0);
+    }
   });
+
+  // Now do async initialization (config loading, header display)
+  const config = await loadConfig();
+  const budget = await getBudgetStatus();
+  const limits = TIER_LIMITS[config.tier];
+
+  // Header
+  console.log(
+    chalk.bold(
+      `\n  ⚡ agent-mux v0.3.1 | ${config.tier} tier ($${config.claude.cost + config.codex.cost}/mo)`
+    )
+  );
+  printBudgetLine(budget, limits);
+  console.log();
+  console.log(chalk.gray('  Type a task to route, or a command:'));
+  console.log(chalk.gray('    /status  — budget dashboard'));
+  console.log(chalk.gray('    /go      — auto-execute mode'));
+  console.log(chalk.gray('    /config  — show configuration'));
+  console.log(chalk.gray('    /help    — show help'));
+  console.log(chalk.gray('    /quit    — exit'));
+  console.log();
+
+  // Manual prompt to avoid readline double-echo on macOS
+  process.stdout.write('mux> ');
+
+  // Mark as initialized and drain any buffered lines
+  initialized = true;
+  void drainQueue();
 }
 
 function printBudgetLine(budget: { claude: { usagePercent: number; tasksCompleted: number }; codex: { usagePercent: number; tasksCompleted: number } }, limits: { claudeMsg5hr: number; codexTasksDay: number }): void {

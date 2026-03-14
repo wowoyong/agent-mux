@@ -18,7 +18,7 @@ export async function spawnClaude(prompt: string, options?: {
   stream?: boolean;
 }): Promise<ClaudeResult> {
   return new Promise((resolve) => {
-    const args = ['-p', prompt, '--no-input'];
+    const args = ['-p', prompt];
 
     if (options?.model) {
       args.push('--model', options.model);

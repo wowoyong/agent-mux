@@ -31,8 +31,9 @@ export async function startRepl(): Promise<void> {
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: chalk.cyan('mux> '),
+    prompt: 'mux> ',
     historySize: 100,
+    terminal: process.stdin.isTTY ?? false,
   });
 
   rl.prompt();

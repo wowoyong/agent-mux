@@ -1,7 +1,5 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { spawn } from 'node:child_process';
+import chalk from 'chalk';
 
 interface ClaudeResult {
   success: boolean;
@@ -12,41 +10,47 @@ interface ClaudeResult {
 
 /**
  * Spawn Claude CLI in non-interactive print mode.
- * Uses execFile (not exec) to prevent shell injection.
+ * Supports streaming stdout to the terminal in real-time.
  */
 export async function spawnClaude(prompt: string, options?: {
   timeout?: number;
   model?: string;
+  stream?: boolean;
 }): Promise<ClaudeResult> {
-  const timeoutMs = options?.timeout ?? 300_000; // 5 min default
+  return new Promise((resolve) => {
+    const args = ['-p', prompt, '--no-input'];
 
-  const args = [
-    '-p', prompt,       // print mode (non-interactive, just output)
-    '--no-input',       // don't wait for user input
-  ];
+    if (options?.model) {
+      args.push('--model', options.model);
+    }
 
-  if (options?.model) {
-    args.push('--model', options.model);
-  }
+    const proc = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
-  try {
-    const { stdout } = await execFileAsync('claude', args, {
-      timeout: timeoutMs,
-      maxBuffer: 10 * 1024 * 1024, // 10MB
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdout += text;
+      if (options?.stream !== false) {
+        process.stdout.write(chalk.gray(text));
+      }
     });
 
-    return {
-      success: true,
-      output: stdout.trim(),
-      exitCode: 0,
-    };
-  } catch (err: unknown) {
-    const e = err as { code?: number; stdout?: string; stderr?: string; message?: string };
-    return {
-      success: e.code === 0,
-      output: e.stdout?.trim() ?? '',
-      error: e.stderr?.trim() ?? e.message ?? 'Unknown error',
-      exitCode: e.code ?? 1,
-    };
-  }
+    proc.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    const timeout = setTimeout(() => proc.kill('SIGTERM'), options?.timeout ?? 300_000);
+
+    proc.on('close', (code) => {
+      clearTimeout(timeout);
+      resolve({
+        success: code === 0,
+        output: stdout.trim(),
+        error: stderr.trim() || undefined,
+        exitCode: code ?? 1,
+      });
+    });
+  });
 }

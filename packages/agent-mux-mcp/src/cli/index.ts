@@ -2,8 +2,10 @@
 
 import { Command } from 'commander';
 import { runTask } from './run.js';
+import { goTask } from './go.js';
 import { showStatus } from './status.js';
 import { interactiveSetup } from './setup.js';
+import { startRepl } from './repl.js';
 
 const program = new Command();
 
@@ -21,10 +23,18 @@ program
   .option('--confirm', 'Always confirm before applying (default for Codex)')
   .action(async (task: string | undefined, options: Record<string, unknown>) => {
     if (!task) {
-      program.help();
+      await startRepl();
       return;
     }
     await runTask(task, options);
+  });
+
+program
+  .command('go <task>')
+  .description('Auto-decompose, route, and execute — the "just do it" command')
+  .option('--verbose', 'Show detailed signal analysis')
+  .action(async (task: string, options: Record<string, unknown>) => {
+    await goTask(task, options);
   });
 
 program

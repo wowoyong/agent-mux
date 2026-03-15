@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { promises as fsPromises } from 'node:fs';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { runTask } from './run.js';
@@ -12,6 +13,8 @@ import { interactiveSetup } from './setup.js';
 import { startRepl } from './repl.js';
 import { cleanupStaleWorktrees } from '../codex/worktree.js';
 import { getActiveProcesses } from './process-tracker.js';
+import { enableDebug, debug } from './debug.js';
+import { checkForUpdates } from './update-check.js';
 
 // Re-export for convenience
 export { registerProcess, unregisterProcess } from './process-tracker.js';
@@ -59,7 +62,8 @@ const program = new Command();
 program
   .name('mux')
   .description('agent-mux — Route tasks between Claude Code and Codex CLI')
-  .version(getVersion());
+  .version(getVersion())
+  .option('--debug', 'Show detailed routing signals and execution info');
 
 program
   .argument('[task]', 'Task description to route and execute')
@@ -68,11 +72,35 @@ program
   .option('--route <target>', 'Force route to claude or codex')
   .option('--auto-apply', 'Skip confirmation for Codex results')
   .option('--confirm', 'Always confirm before applying (default for Codex)')
-  .action(async (task: string | undefined, options: Record<string, unknown>) => {
-    if (!task) {
+  .option('-f, --file <files...>', 'Files to include as context')
+  .action(async (taskArg: string | undefined, options: Record<string, unknown>) => {
+    // Enable debug mode if --debug flag is set (from global or local option)
+    if (program.opts().debug) {
+      enableDebug();
+      debug('Debug mode enabled');
+    }
+    if (!taskArg) {
       await startRepl();
       return;
     }
+
+    // Append file contexts if -f/--file specified
+    let task = taskArg;
+    if (options.file) {
+      const files = options.file as string[];
+      const contexts: string[] = [];
+      for (const f of files) {
+        try {
+          const content = await fsPromises.readFile(f, 'utf-8');
+          contexts.push(`\n--- File: ${f} ---\n${content}\n`);
+          debug(`Loaded file context: ${f} (${content.length} chars)`);
+        } catch {
+          debug(`Failed to read file context: ${f}`);
+        }
+      }
+      task = task + contexts.join('');
+    }
+
     // Check git repo for codex-routed tasks (non-forced-claude)
     if (options.route !== 'claude' && !isGitRepo()) {
       const { analyzeTask, routeTask } = await import('../routing/classifier.js');
@@ -98,14 +126,14 @@ program
   .command('go <task>')
   .description('Auto-decompose, route, and execute — the "just do it" command')
   .option('--verbose', 'Show detailed signal analysis')
-  .action(async (task: string, _options: Record<string, unknown>) => {
+  .action(async (task: string, options: Record<string, unknown>) => {
     if (!isGitRepo()) {
       console.error('\n  \u26a0 Not a git repository. Codex tasks require a git project.');
       console.error('    \u2022 cd into a git project directory');
       console.error('    \u2022 Or use: mux --route=claude "your task"\n');
       process.exit(1);
     }
-    await goTask(task, _options);
+    await goTask(task, options);
   });
 
 program
@@ -121,7 +149,7 @@ program
 program
   .command('config [key] [value]')
   .description('View or set configuration')
-  .action(async (key?: string, _value?: string) => {
+  .action(async (key?: string) => {
     const { loadConfig } = await import('../config/loader.js');
     const config = await loadConfig();
     if (!key) {
@@ -182,5 +210,8 @@ program
 
 // Cleanup stale worktrees silently on startup (fire-and-forget)
 cleanupStaleWorktrees().catch(() => {});
+
+// Check for updates silently on startup (fire-and-forget, non-blocking)
+checkForUpdates(getVersion()).catch(() => {});
 
 program.parse();

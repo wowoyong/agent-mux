@@ -56,7 +56,7 @@ function pctToCapacity(pct: number): 'high' | 'medium' | 'low' | 'exhausted' {
 /**
  * Generate budget warnings based on usage thresholds.
  */
-function generateWarnings(thresholds: number[], claudePct: number, codexPct: number, _tier: string): BudgetWarning[] {
+function generateWarnings(thresholds: number[], claudePct: number, codexPct: number): BudgetWarning[] {
   const warnings: BudgetWarning[] = [];
 
   for (const threshold of thresholds) {
@@ -65,7 +65,7 @@ function generateWarnings(thresholds: number[], claudePct: number, codexPct: num
         level: threshold >= 90 ? 'critical' : threshold >= 75 ? 'warn' : 'info',
         threshold,
         agent: 'claude',
-        message: `Claude ${Math.round(claudePct)}% used — ${threshold >= 90 ? 'Codex 전용 모드 권장' : threshold >= 75 ? 'Codex 우선 라우팅 권장' : '현재 페이스 모니터링 중'}`,
+        message: `Claude ${Math.round(claudePct)}% used — ${threshold >= 90 ? 'recommend Codex-only mode' : threshold >= 75 ? 'recommend Codex-first routing' : 'monitoring pace'}`,
         usagePct: claudePct,
       });
     }
@@ -105,7 +105,7 @@ export async function getBudgetStatus(): Promise<BudgetStatus & { warnings: Budg
   const codexPct = limits.codexTasksDay < Infinity ? (codexUsed / limits.codexTasksDay) * 100 : 0;
 
   // Generate warnings
-  const warnings = generateWarnings(config.budget.warnings, claudePct, codexPct, tier);
+  const warnings = generateWarnings(config.budget.warnings, claudePct, codexPct);
 
   // Build response
   const claude: AgentBudget = {

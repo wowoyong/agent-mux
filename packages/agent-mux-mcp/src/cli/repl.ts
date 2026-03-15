@@ -22,6 +22,16 @@ export async function startRepl(): Promise<void> {
   // Set up readline and register handlers IMMEDIATELY to capture piped stdin.
   // Use terminal: true when stdin is a TTY for arrow-key history support.
   // Use terminal: false when piped to avoid issues with non-interactive input.
+  // Tab completion for slash commands
+  function completer(line: string): [string[], string] {
+    const commands = ['/status', '/go', '/config', '/help', '/quit', '/chat', '/history'];
+    if (line.startsWith('/')) {
+      const hits = commands.filter(c => c.startsWith(line));
+      return [hits.length ? hits : commands, line];
+    }
+    return [[], line];
+  }
+
   const isTTY = process.stdin.isTTY === true;
   const rl = createInterface({
     input: process.stdin,
@@ -29,6 +39,7 @@ export async function startRepl(): Promise<void> {
     terminal: isTTY,
     prompt: 'mux> ',
     historySize: 100,
+    completer,
   });
 
   // Queue lines and process sequentially; buffer lines until init completes
@@ -74,6 +85,9 @@ export async function startRepl(): Promise<void> {
         } else {
           console.log(chalk.gray('  Usage: /chat <message>'));
         }
+      } else if (input === '/go') {
+        console.log(chalk.gray('  Usage: /go <task description>'));
+        console.log(chalk.gray('  Example: /go "add auth middleware and write tests"'));
       } else if (input.startsWith('/go ')) {
         const task = input.slice(4).trim();
         if (task) {
@@ -203,7 +217,7 @@ function printHelp(): void {
     chalk.bold('Commands'),
     '',
     `${chalk.white('<task>')}           Route and execute a task`,
-    `${chalk.white('/go <task>')}       Auto-execute mode`,
+    `${chalk.white('/go <task>')}       Auto-decompose, route, and execute without confirmation`,
     `${chalk.white('/chat <msg>')}      General chat (skip routing)`,
     `${chalk.white('/history')}         Show recent routing decisions`,
     `${chalk.white('/status')}          Show budget dashboard`,

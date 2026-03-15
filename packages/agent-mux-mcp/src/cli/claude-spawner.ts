@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { registerProcess, unregisterProcess } from './process-tracker.js';
+import { debug } from './debug.js';
+import { CLAUDE_TIMEOUT_DEFAULT } from '../constants.js';
 
 interface ClaudeResult {
   success: boolean;
@@ -25,6 +27,7 @@ export async function spawnClaude(prompt: string, options?: {
       args.push('--model', options.model);
     }
 
+    debug('Spawning claude with args:', args);
     const proc = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'] });
     registerProcess(proc);
 
@@ -62,7 +65,7 @@ export async function spawnClaude(prompt: string, options?: {
       }
     });
 
-    const timeout = setTimeout(() => proc.kill('SIGTERM'), options?.timeout ?? 300_000);
+    const timeout = setTimeout(() => proc.kill('SIGTERM'), options?.timeout ?? CLAUDE_TIMEOUT_DEFAULT);
 
     proc.on('close', (code) => {
       clearTimeout(timeout);

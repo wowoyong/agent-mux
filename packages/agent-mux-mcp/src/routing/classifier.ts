@@ -16,6 +16,7 @@ import {
 } from './signals.js';
 import { HARD_RULES } from './rules.js';
 import { logRoutingDecision, loadOverrides, matchOverride } from './history.js';
+import { debug } from '../cli/debug.js';
 
 // ─── Keyword Patterns ───────────────────────────────────────────────
 
@@ -114,31 +115,38 @@ export function analyzeTask(taskDescription: string): TaskSignals {
 
   const lower = taskDescription.toLowerCase();
 
+  // Helper to set a boolean signal safely without double type assertion
+  function setSignal(key: keyof TaskSignals, value: boolean): void {
+    if (key in signals && typeof signals[key] === 'boolean') {
+      (signals[key] as boolean) = value;
+    }
+  }
+
   // Run Codex keyword patterns
   for (const kw of CODEX_KEYWORDS) {
     if (kw.pattern.test(taskDescription)) {
-      (signals as unknown as Record<string, unknown>)[kw.signal] = true;
+      setSignal(kw.signal, true);
     }
   }
 
   // Run Claude keyword patterns
   for (const kw of CLAUDE_KEYWORDS) {
     if (kw.pattern.test(taskDescription)) {
-      (signals as unknown as Record<string, unknown>)[kw.signal] = true;
+      setSignal(kw.signal, true);
     }
   }
 
   // Run Korean Codex keyword patterns
   for (const kw of CODEX_KEYWORDS_KO) {
     if (kw.pattern.test(taskDescription)) {
-      (signals as unknown as Record<string, unknown>)[kw.signal] = true;
+      setSignal(kw.signal, true);
     }
   }
 
   // Run Korean Claude keyword patterns
   for (const kw of CLAUDE_KEYWORDS_KO) {
     if (kw.pattern.test(taskDescription)) {
-      (signals as unknown as Record<string, unknown>)[kw.signal] = true;
+      setSignal(kw.signal, true);
     }
   }
 
@@ -247,7 +255,6 @@ function estimateFileCount(description: string): number {
  */
 export async function classifyTask(
   description: string,
-  _fileContext?: string[]
 ): Promise<TaskSignals> {
   return analyzeTask(description);
 }
@@ -310,10 +317,11 @@ export function routeTask(
   const activeSignals: string[] = [];
 
   for (const [signal, weight] of Object.entries(SIGNAL_WEIGHTS)) {
-    const value = (signals as unknown as Record<string, unknown>)[signal];
+    const value = signals[signal as keyof TaskSignals];
     if (value === true) {
       score += weight;
       activeSignals.push(signal);
+      debug(`Signal: ${signal} = ${weight}`);
     }
   }
 
@@ -333,6 +341,8 @@ export function routeTask(
   if (codexBudgetPct < 0.2) {
     score -= 50; // push toward Claude
   }
+
+  debug(`Routing score: ${score}, active signals: [${activeSignals.join(', ')}], modifiers: [${appliedModifiers.join('; ')}]`);
 
   // Calculate confidence as ratio of score magnitude to max possible score
   const maxScore = Object.values(SIGNAL_WEIGHTS).reduce(

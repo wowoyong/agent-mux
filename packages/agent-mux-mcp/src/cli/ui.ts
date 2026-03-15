@@ -21,13 +21,18 @@ function padVisible(str: string, target: number): string {
   return diff > 0 ? str + ' '.repeat(diff) : str;
 }
 
+/** Get terminal width, falling back to 50 */
+export function getTerminalWidth(): number {
+  return process.stdout.columns || 50;
+}
+
 /**
  * Draw a rounded box (╭╮╰╯) around content lines.
  * @param title  Optional title displayed in the top border
  * @param lines  Content lines (may contain ANSI)
  * @param width  Total outer width including borders
  */
-export function box(title: string, lines: string[], width = 52): string {
+export function box(title: string, lines: string[], width = Math.min(getTerminalWidth() - 4, 52)): string {
   const inner = width - 4; // 2 for border chars + 2 for padding spaces
 
   // Top border
@@ -48,7 +53,7 @@ export function box(title: string, lines: string[], width = 52): string {
 /**
  * Draw a light box (┌┐└┘) — used for inner/nested sections.
  */
-export function lightBox(title: string, lines: string[], width = 44): string {
+export function lightBox(title: string, lines: string[], width = Math.min(getTerminalWidth() - 4, 44)): string {
   const inner = width - 4;
 
   const titleStr = title ? ` ${title} ` : '';

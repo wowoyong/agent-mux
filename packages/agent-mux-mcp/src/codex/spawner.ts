@@ -12,6 +12,7 @@ import { JsonlStreamParser } from './parser.js';
 import { createWorktree, cleanupWorktree } from './worktree.js';
 import { validateFileScope } from './validator.js';
 import { registerProcess, unregisterProcess } from '../cli/process-tracker.js';
+import { CODEX_TIMEOUT_MEDIUM, STALL_THRESHOLD, STALL_CHECK_INTERVAL } from '../constants.js';
 
 const execAsync = promisify(execFile);
 
@@ -60,7 +61,7 @@ export async function spawn(
   const startTime = Date.now();
   const taskId = generateTaskId();
   const codexPath = options?.codexPath ?? 'codex';
-  const stallThresholdMs = options?.stallThresholdMs ?? 90_000;
+  const stallThresholdMs = options?.stallThresholdMs ?? STALL_THRESHOLD;
 
   // ── Worktree setup ──────────────────────────────────────────────
   const worktreePath = input.worktreePath ?? `.codex-worktrees/task-${taskId}`;
@@ -103,7 +104,7 @@ export async function spawn(
   });
 
   // ── Timeout ─────────────────────────────────────────────────────
-  const timeoutMs = input.timeout ?? 420_000;
+  const timeoutMs = input.timeout ?? CODEX_TIMEOUT_MEDIUM;
   const timeout = setTimeout(() => {
     proc.kill('SIGTERM');
   }, timeoutMs);
@@ -113,7 +114,7 @@ export async function spawn(
     if (parser.isStalled(stallThresholdMs)) {
       proc.kill('SIGTERM');
     }
-  }, 5_000);
+  }, STALL_CHECK_INTERVAL);
 
   // ── Wait for exit ───────────────────────────────────────────────
   const exitCode = await new Promise<number>((resolve) => {

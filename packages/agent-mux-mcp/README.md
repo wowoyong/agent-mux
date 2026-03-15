@@ -232,8 +232,8 @@ mux "JSDoc 추가해줘"
 |------|--------|-------|:---:|:---:|:---:|:---:|-----------|
 | **Budget** | Pro $20 | Plus $20 | $40 | 30:70 | local | codex | 4x 코딩 시간 |
 | **Standard** | Max 5x $100 | Plus $20 | $120 | 55:45 | local | balanced | 병렬 워크플로우 |
-| **Premium** | Max 20x $200 | Plus $20 | $220 | 70:30 | hybrid | claude | 핸즈프리 라우팅 |
-| **Power** | Max 20x $200 | Pro $200 | $400 | 65:35 | hybrid | adaptive | 최대 병렬성 |
+| **Premium** | Max 20x $200 | Plus $20 | $220 | 70:30 | hybrid (planned) | claude | 핸즈프리 라우팅 |
+| **Power** | Max 20x $200 | Pro $200 | $400 | 65:35 | hybrid (planned) | adaptive | 최대 병렬성 |
 
 ### 티어별 Rate Limit
 
@@ -260,15 +260,15 @@ mux "JSDoc 추가해줘"
 | Feature | Budget $40 | Standard $120 | Premium $220 | Power $400 |
 |---------|:---:|:---:|:---:|:---:|
 | Local routing engine | O | O | O | O |
-| LLM-assisted routing | - | 선택 | 상시 | 상시 |
+| LLM-assisted routing (planned) | - | 선택 | 상시 | 상시 |
 | 전체 CLI 명령어 | O | O | O | O |
 | Override flags | O | O | O | O |
-| Batch mode | 30s | 15s | 5s | 3s |
+| Batch mode (planned) | 30s | 15s | 5s | 3s |
 | Parallel dispatch | - | O | O | O |
 | Auto-escalation | 1회 | 2회 | 2회 | 3회 |
 | Task decomposition (`mux go`) | O | O | O | O |
 | Concurrent Codex | 1 | 1 | 1 | 3 |
-| Conservation mode | ON | - | - | - |
+| Conservation mode (planned) | ON | - | - | - |
 
 ---
 
@@ -424,19 +424,19 @@ routing:
     strategy: fix     # fix | fix_then_redo | full
     max_retries: 1
 
-batch_mode:
-  enabled: true
-  queue_timeout_sec: 30
+# batch_mode: (planned)
+#   enabled: true
+#   queue_timeout_sec: 30
 
-conservation:
-  enabled: true
-  codex_first_on_uncertain: true
+# conservation: (planned)
+#   enabled: true
+#   codex_first_on_uncertain: true
 
 budget:
   warnings: [50, 75, 90]
-  degradation:
-    on_claude_exhausted: codex_only
-    on_both_exhausted: queue_and_wait
+  # degradation: (planned)
+  #   on_claude_exhausted: codex_only
+  #   on_both_exhausted: queue_and_wait
 
 # Optional: 커스텀 deny-list 패턴 (기본값에 추가됨)
 # deny_list:

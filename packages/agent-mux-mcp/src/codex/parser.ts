@@ -4,6 +4,7 @@
  */
 
 import type { JsonlEventType, JsonlEvent } from '../types.js';
+import { STALL_THRESHOLD } from '../constants.js';
 
 // Re-export types for convenience
 export type { JsonlEventType, JsonlEvent };
@@ -106,7 +107,7 @@ export class JsonlStreamParser {
   /**
    * Check whether the parser has stalled (no events for longer than threshold).
    */
-  isStalled(thresholdMs: number = 90_000): boolean {
+  isStalled(thresholdMs: number = STALL_THRESHOLD): boolean {
     return Date.now() - this.lastEventTime > thresholdMs;
   }
 

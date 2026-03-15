@@ -1,18 +1,13 @@
 import chalk from 'chalk';
-import ora from 'ora';
-import { execFile as execFileCb } from 'node:child_process';
-import { promisify } from 'node:util';
 import { analyzeTask, routeTask } from '../routing/classifier.js';
 import { decomposeTask } from '../routing/decomposer.js';
-import { spawnWithRetry } from '../codex/retry.js';
 import { loadConfig } from '../config/loader.js';
 import { getBudgetStatus } from '../budget/tracker.js';
 import { spawnClaude } from './claude-spawner.js';
 import { TIER_LIMITS } from '../config/tiers.js';
+import { executeOnCodex, executeOnClaude, applyWorktreeChanges } from './executor.js';
 import { box, section, progressBar } from './ui.js';
 import type { SubTask, RouteTarget } from '../types.js';
-
-const execFile = promisify(execFileCb);
 
 interface GoOptions {
   verbose?: boolean;
@@ -57,7 +52,7 @@ export async function goTask(taskDescription: string, options: GoOptions): Promi
       console.log('\n' + section('Phase 1: Claude'));
       for (const task of claudeTasks) {
         const start = Date.now();
-        await executeSubtask(task, 'claude', options);
+        await executeSubtask(task, 'claude');
         const elapsed = Math.round((Date.now() - start) / 1000);
         results.push({ id: task.id, desc: task.description.slice(0, 40), elapsed, files: 0, success: true });
       }
@@ -68,7 +63,7 @@ export async function goTask(taskDescription: string, options: GoOptions): Promi
       console.log('\n' + section('Phase 2: Codex'));
       for (const task of codexTasks) {
         const start = Date.now();
-        const r = await executeSubtask(task, 'codex', options);
+        const r = await executeSubtask(task, 'codex');
         const elapsed = Math.round((Date.now() - start) / 1000);
         results.push({ id: task.id, desc: task.description.slice(0, 40), elapsed, files: r.files, success: r.success });
       }
@@ -113,7 +108,7 @@ export async function goTask(taskDescription: string, options: GoOptions): Promi
     if (decision.target === 'codex') {
       await executeCodexGo(taskDescription);
     } else {
-      await executeClaudeGo(taskDescription);
+      await executeOnClaude(taskDescription, { stream: true });
     }
 
     // Summary
@@ -129,87 +124,52 @@ export async function goTask(taskDescription: string, options: GoOptions): Promi
   }
 }
 
-async function executeSubtask(subtask: SubTask, target: RouteTarget, _options: GoOptions): Promise<{ success: boolean; files: number }> {
+async function executeSubtask(subtask: SubTask, target: RouteTarget): Promise<{ success: boolean; files: number }> {
   if (target === 'codex') {
-    const spinner = ora({
-      text: `${subtask.description.slice(0, 50)}...`,
-      spinner: 'dots',
-    }).start();
-
-    const start = Date.now();
-    const result = await spawnWithRetry({
-      prompt: subtask.description,
-      complexity: 'medium',
-      timeout: 420_000,
-    });
-    const elapsed = Math.round((Date.now() - start) / 1000);
+    const { result, elapsed } = await executeOnCodex(subtask.description);
 
     if (result.finalResult.success) {
       const filesCount = result.finalResult.filesModified.length;
-      spinner.succeed(`#${subtask.id}  ${subtask.description.slice(0, 40)}  ${chalk.gray(`(${elapsed}s, ${filesCount} files)`)}`);
 
       // Auto-apply: merge worktree
       if (result.finalResult.worktreePath && result.finalResult.branchName) {
-        await autoMerge(result.finalResult.worktreePath, result.finalResult.branchName);
+        await applyWorktreeChanges(
+          result.finalResult.worktreePath,
+          result.finalResult.branchName,
+          `auto-merge subtask #${subtask.id}`
+        );
       }
       return { success: true, files: filesCount };
     } else {
-      spinner.fail(`#${subtask.id}  ${subtask.description.slice(0, 40)}  ${chalk.red('FAILED')}`);
       if (result.escalatedToClaude) {
         console.log(chalk.yellow('    \u2192 Escalating to Claude...'));
-        await executeClaudeGo(subtask.description);
+        await executeOnClaude(subtask.description, { stream: true });
       }
       return { success: false, files: 0 };
     }
   } else {
     // Claude task
     console.log(`  ${chalk.blue('\u2713')} #${subtask.id}  ${subtask.description.slice(0, 50)}`);
-    console.log(chalk.blue('    Claude:'));
-    const result = await spawnClaude(subtask.description, { stream: true });
-    if (!result.success) {
-      console.log(chalk.red(`    Error: ${result.error || 'Unknown'}`));
-      return { success: false, files: 0 };
-    }
-    console.log();
-    return { success: true, files: 0 };
+    const claudeResult = await executeOnClaude(subtask.description, { stream: true });
+    return { success: claudeResult.success, files: 0 };
   }
 }
 
 async function executeCodexGo(task: string): Promise<void> {
-  const spinner = ora({ text: chalk.green('Codex working...'), spinner: 'dots' }).start();
-  const start = Date.now();
-
-  const result = await spawnWithRetry({ prompt: task, complexity: 'medium', timeout: 420_000 });
-  const elapsed = Math.round((Date.now() - start) / 1000);
+  const { result } = await executeOnCodex(task);
 
   if (result.finalResult.success) {
-    spinner.succeed(chalk.green(`Complete \u2014 ${result.finalResult.filesModified.length} files (${elapsed}s)`));
     if (result.finalResult.worktreePath && result.finalResult.branchName) {
-      await autoMerge(result.finalResult.worktreePath, result.finalResult.branchName);
+      await applyWorktreeChanges(
+        result.finalResult.worktreePath,
+        result.finalResult.branchName,
+        'auto-merge codex task'
+      );
     }
   } else {
-    spinner.fail(chalk.red(`Failed (${elapsed}s)`));
     if (result.escalatedToClaude) {
       console.log(chalk.yellow('\n  \u2192 Escalating to Claude...'));
-      await executeClaudeGo(task);
+      await executeOnClaude(task, { stream: true });
     }
-  }
-}
-
-async function executeClaudeGo(task: string): Promise<void> {
-  console.log(chalk.blue('\n  Claude:'));
-  await spawnClaude(task, { stream: true });
-  console.log();
-}
-
-async function autoMerge(worktreePath: string, branchName: string): Promise<void> {
-  try {
-    await execFile('git', ['merge', branchName, '--no-ff', '-m', 'mux: auto-merge codex task']);
-    await execFile('git', ['worktree', 'remove', worktreePath]);
-    await execFile('git', ['branch', '-d', branchName]);
-    console.log(chalk.gray('    \u2713 Changes merged'));
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.log(chalk.yellow(`    \u26a0 Merge skipped: ${msg.slice(0, 50)}`));
   }
 }

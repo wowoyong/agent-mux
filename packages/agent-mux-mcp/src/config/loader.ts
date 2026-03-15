@@ -12,82 +12,19 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import YAML from 'yaml';
 import type { MuxConfig, TierName } from '../types.js';
 import { DEFAULT_DENY_LIST } from '../types.js';
 import { getTierPreset } from './tiers.js';
+import { debug } from '../cli/debug.js';
 
 /**
- * Minimal YAML parser for simple key-value YAML files.
- * Handles flat keys, nested objects (via indentation), arrays (via - prefix),
- * and basic types (string, number, boolean).
- * Not a full YAML parser -- sufficient for .agent-mux/config.yaml.
+ * Parse YAML content into a plain object.
+ * Uses the `yaml` package for full YAML spec support
+ * (multi-line strings, anchors, aliases, null values, etc.).
  */
-function parseSimpleYaml(content: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const lines = content.split('\n');
-  const stack: { indent: number; obj: Record<string, unknown> }[] = [
-    { indent: -1, obj: result },
-  ];
-
-  for (const rawLine of lines) {
-    // Skip blank lines and comments
-    if (/^\s*(#|$)/.test(rawLine)) continue;
-
-    const indent = rawLine.search(/\S/);
-    const line = rawLine.trim();
-
-    // Pop stack to find parent at lower indent
-    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-      stack.pop();
-    }
-    const parent = stack[stack.length - 1].obj;
-
-    // Array item: "- value"
-    if (line.startsWith('- ')) {
-      // Find the last key in parent that is an array
-      const keys = Object.keys(parent);
-      const lastKey = keys[keys.length - 1];
-      if (lastKey && Array.isArray(parent[lastKey])) {
-        (parent[lastKey] as unknown[]).push(parseYamlValue(line.slice(2).trim()));
-      }
-      continue;
-    }
-
-    // Key: value
-    const colonIndex = line.indexOf(':');
-    if (colonIndex === -1) continue;
-
-    const key = line.slice(0, colonIndex).trim();
-    const rawValue = line.slice(colonIndex + 1).trim();
-
-    if (rawValue === '' || rawValue === '|' || rawValue === '>') {
-      // Nested object or block scalar -- create nested object
-      const nested: Record<string, unknown> = {};
-      parent[key] = nested;
-      stack.push({ indent, obj: nested });
-    } else if (rawValue.startsWith('[') && rawValue.endsWith(']')) {
-      // Inline array: [a, b, c]
-      const items = rawValue.slice(1, -1).split(',').map((s) => parseYamlValue(s.trim()));
-      parent[key] = items;
-    } else {
-      parent[key] = parseYamlValue(rawValue);
-    }
-  }
-
-  return result;
-}
-
-function parseYamlValue(raw: string): string | number | boolean {
-  if (raw === 'true') return true;
-  if (raw === 'false') return false;
-  if (raw === 'null' || raw === '~') return '' as unknown as string;
-  // Remove quotes
-  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
-    return raw.slice(1, -1);
-  }
-  const num = Number(raw);
-  if (!isNaN(num) && raw !== '') return num;
-  return raw;
+function parseYaml(content: string): Record<string, unknown> {
+  return (YAML.parse(content) ?? {}) as Record<string, unknown>;
 }
 
 /**
@@ -110,19 +47,24 @@ export async function loadConfig(projectRoot?: string): Promise<MuxConfig> {
   // Home directory fallback
   searchPaths.push(join(homedir(), '.agent-mux', 'config.yaml'));
 
+  debug('Config search paths:', searchPaths);
+
   for (const configPath of searchPaths) {
     if (existsSync(configPath)) {
       try {
+        debug(`Loading config from: ${configPath}`);
         const content = await readFile(configPath, 'utf-8');
-        const parsed = parseSimpleYaml(content);
+        const parsed = parseYaml(content);
         return mergeWithDefaults(parsed);
       } catch {
+        debug(`Failed to load config from: ${configPath}`);
         // Fall through to next path
       }
     }
   }
 
   // No config file found -- return defaults
+  debug('No config file found, using defaults');
   return getDefaultConfig('standard');
 }
 

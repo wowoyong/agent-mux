@@ -11,6 +11,7 @@ import type { SpawnCodexInput, SpawnCodexOutput } from '../types.js';
 import { JsonlStreamParser } from './parser.js';
 import { createWorktree, cleanupWorktree } from './worktree.js';
 import { validateFileScope } from './validator.js';
+import { registerProcess, unregisterProcess } from '../cli/process-tracker.js';
 
 const execAsync = promisify(execFile);
 
@@ -79,6 +80,7 @@ export async function spawn(
   const proc = nodeSpawn(codexPath, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+  registerProcess(proc);
 
   const parser = new JsonlStreamParser();
   let stdout = '';
@@ -92,6 +94,12 @@ export async function spawn(
 
   proc.stderr?.on('data', (chunk: Buffer) => {
     stderr += chunk.toString();
+  });
+
+  // ── ENOENT handling ─────────────────────────────────────────────
+  let spawnError: NodeJS.ErrnoException | null = null;
+  proc.on('error', (err: NodeJS.ErrnoException) => {
+    spawnError = err;
   });
 
   // ── Timeout ─────────────────────────────────────────────────────
@@ -112,9 +120,39 @@ export async function spawn(
     proc.on('close', (code) => {
       clearTimeout(timeout);
       clearInterval(stallCheck);
+      unregisterProcess(proc);
       resolve(code ?? 1);
     });
+    // If spawn itself fails (ENOENT), 'close' may not fire in all versions
+    proc.on('error', () => {
+      clearTimeout(timeout);
+      clearInterval(stallCheck);
+      unregisterProcess(proc);
+      resolve(127);
+    });
   });
+
+  // ── Friendly error for missing CLI ──────────────────────────────
+  const capturedError = spawnError as unknown as NodeJS.ErrnoException | null;
+  if (capturedError) {
+    const durationMs = Date.now() - startTime;
+    const errorMsg = capturedError.code === 'ENOENT'
+      ? 'Codex CLI not found. Install: npm install -g @openai/codex'
+      : capturedError.message;
+    return {
+      success: false,
+      taskId,
+      worktreePath,
+      branchName,
+      filesModified: [],
+      stdout: '',
+      stderr: errorMsg,
+      exitCode: 127,
+      durationMs,
+      deniedFiles: [],
+      jsonlEvents: 0,
+    };
+  }
 
   // ── Collect results ─────────────────────────────────────────────
   const durationMs = Date.now() - startTime;

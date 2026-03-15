@@ -51,6 +51,31 @@ const CLAUDE_KEYWORDS: Array<{ pattern: RegExp; signal: keyof TaskSignals }> = [
   { pattern: /best\s+(approach|way|strategy|practice)/i, signal: 'isArchitectural' },
 ];
 
+/** Korean patterns that suggest the task is better suited for Codex */
+const CODEX_KEYWORDS_KO: Array<{ pattern: RegExp; signal: keyof TaskSignals }> = [
+  { pattern: /테스트\s*(작성|만들|추가|생성)/i, signal: 'isTestWriting' },
+  { pattern: /문서\s*(작성|추가|생성)|주석\s*(추가|작성)/i, signal: 'isDocGeneration' },
+  { pattern: /린트\s*(수정|고치|해결)|포맷팅\s*(수정|적용)/i, signal: 'isSelfContained' },
+  { pattern: /리네이밍|이름\s*(변경|바꿔|바꾸)/i, signal: 'isRefactoring' },
+  { pattern: /엔드포인트\s*(구현|추가|만들)/i, signal: 'isSelfContained' },
+  { pattern: /의존성\s*(업데이트|갱신)|패키지\s*(업데이트|갱신)/i, signal: 'isSelfContained' },
+  { pattern: /버그\s*(수정|고치|해결)|에러\s*(수정|고치|해결)/i, signal: 'isDebugging' },
+  { pattern: /파일\s*(생성|만들|추가)/i, signal: 'isSelfContained' },
+  { pattern: /리팩토링\s*(해줘|해주세요|하자)/i, signal: 'isRefactoring' },
+];
+
+/** Korean patterns that suggest the task is better suited for Claude */
+const CLAUDE_KEYWORDS_KO: Array<{ pattern: RegExp; signal: keyof TaskSignals }> = [
+  { pattern: /아키텍처\s*(설계|디자인|구성)/i, signal: 'isArchitectural' },
+  { pattern: /설계\s*(해줘|해주세요|하자)/i, signal: 'isArchitectural' },
+  { pattern: /디버그|디버깅/i, signal: 'isDebugging' },
+  { pattern: /코드\s*리뷰|리뷰\s*(해줘|해주세요)/i, signal: 'isCodeReview' },
+  { pattern: /설명\s*(해줘|해주세요)|왜\s*(그런|이런)/i, signal: 'needsConversationContext' },
+  { pattern: /보안\s*(검사|감사|리뷰|체크)/i, signal: 'isSecurityAudit' },
+  { pattern: /스캐폴딩|프로젝트\s*(생성|구조|셋업)/i, signal: 'isScaffolding' },
+  { pattern: /여러\s*파일|다수\s*파일|전체\s*파일/i, signal: 'isMultiFileOrchestration' },
+];
+
 // ─── Signal Extraction ──────────────────────────────────────────────
 
 /**
@@ -98,6 +123,20 @@ export function analyzeTask(taskDescription: string): TaskSignals {
 
   // Run Claude keyword patterns
   for (const kw of CLAUDE_KEYWORDS) {
+    if (kw.pattern.test(taskDescription)) {
+      (signals as unknown as Record<string, unknown>)[kw.signal] = true;
+    }
+  }
+
+  // Run Korean Codex keyword patterns
+  for (const kw of CODEX_KEYWORDS_KO) {
+    if (kw.pattern.test(taskDescription)) {
+      (signals as unknown as Record<string, unknown>)[kw.signal] = true;
+    }
+  }
+
+  // Run Korean Claude keyword patterns
+  for (const kw of CLAUDE_KEYWORDS_KO) {
     if (kw.pattern.test(taskDescription)) {
       (signals as unknown as Record<string, unknown>)[kw.signal] = true;
     }
@@ -413,6 +452,25 @@ function logRoutingDecisionAsync(
   };
   // Fire-and-forget
   logRoutingDecision(entry).catch(() => {});
+}
+
+// ─── General Chat Detection ─────────────────────────────────────────
+
+/**
+ * Detect whether user input is a coding task or general chat.
+ * Returns true if any coding-related keyword is present.
+ */
+export function isCodingTask(taskDescription: string): boolean {
+  const codingIndicators = [
+    /\b(write|create|build|implement|add|fix|debug|refactor|test|deploy|update|delete|remove|rename|scaffold|design|architect|review|audit|lint|format|document|generate|convert|migrate|optimize|configure)\b/i,
+    /\b(function|class|module|component|api|endpoint|database|server|client|frontend|backend|service|controller|model|schema|type|interface|route|middleware|hook|handler|util|helper|test|spec)\b/i,
+    /\b(bug|error|crash|issue|feature|task|ticket|pr|pull request|commit|branch|merge|deploy|release)\b/i,
+    /\.(ts|js|py|rb|go|rs|java|cpp|c|h|css|html|jsx|tsx|vue|svelte|json|yaml|yml|toml|sql|sh|bash|zsh)$/i,
+    // Korean coding keywords
+    /\b(테스트|코드|함수|클래스|모듈|컴포넌트|버그|에러|리팩토링|배포|구현|생성|수정|삭제|디버그|설계|아키텍처)\b/,
+  ];
+
+  return codingIndicators.some(pattern => pattern.test(taskDescription));
 }
 
 // ─── User Override Recording ────────────────────────────────────────

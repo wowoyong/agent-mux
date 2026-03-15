@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
+import { registerProcess, unregisterProcess } from './process-tracker.js';
 
 interface ClaudeResult {
   success: boolean;
@@ -25,6 +26,7 @@ export async function spawnClaude(prompt: string, options?: {
     }
 
     const proc = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    registerProcess(proc);
 
     let stdout = '';
     let stderr = '';
@@ -41,10 +43,30 @@ export async function spawnClaude(prompt: string, options?: {
       stderr += chunk.toString();
     });
 
+    proc.on('error', (err: NodeJS.ErrnoException) => {
+      unregisterProcess(proc);
+      if (err.code === 'ENOENT') {
+        resolve({
+          success: false,
+          output: '',
+          error: 'Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code',
+          exitCode: 127,
+        });
+      } else {
+        resolve({
+          success: false,
+          output: '',
+          error: err.message,
+          exitCode: 1,
+        });
+      }
+    });
+
     const timeout = setTimeout(() => proc.kill('SIGTERM'), options?.timeout ?? 300_000);
 
     proc.on('close', (code) => {
       clearTimeout(timeout);
+      unregisterProcess(proc);
       resolve({
         success: code === 0,
         output: stdout.trim(),

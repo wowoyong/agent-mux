@@ -1,4 +1,6 @@
 import { createInterface } from 'node:readline';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import chalk from 'chalk';
 import { runTask } from './run.js';
 import { goTask } from './go.js';
@@ -8,13 +10,25 @@ import { getBudgetStatus } from '../budget/tracker.js';
 import { TIER_LIMITS } from '../config/tiers.js';
 import { box, progressBar } from './ui.js';
 
+function getVersion(): string {
+  try {
+    // __dirname is available in CJS output; go up from dist/src/cli/ to package root
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'package.json'), 'utf-8'));
+    return pkg.version;
+  } catch { return 'unknown'; }
+}
+
 export async function startRepl(): Promise<void> {
   // Set up readline and register handlers IMMEDIATELY to capture piped stdin.
-  // Use terminal: false to prevent readline double-echo on macOS.
+  // Use terminal: true when stdin is a TTY for arrow-key history support.
+  // Use terminal: false when piped to avoid issues with non-interactive input.
+  const isTTY = process.stdin.isTTY === true;
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    terminal: false,
+    terminal: isTTY,
+    prompt: 'mux> ',
+    historySize: 100,
   });
 
   // Queue lines and process sequentially; buffer lines until init completes
@@ -36,6 +50,30 @@ export async function startRepl(): Promise<void> {
         console.log(JSON.stringify(cfg, null, 2));
       } else if (input === '/help') {
         printHelp();
+      } else if (input === '/history') {
+        const { getRoutingHistory } = await import('../routing/history.js');
+        const { box: historyBox } = await import('./ui.js');
+        const history = await getRoutingHistory(10);
+        if (history.length === 0) {
+          console.log(chalk.gray('  No routing history yet.'));
+        } else {
+          const lines = history.map(h => {
+            const target = h.decision.target === 'claude' ? chalk.blue('Claude') : chalk.green('Codex');
+            const time = new Date(h.timestamp).toLocaleTimeString();
+            const conf = Math.round(h.decision.confidence * 100);
+            return `${chalk.gray(time)}  ${target}  ${conf}%  ${h.taskSummary.slice(0, 35)}`;
+          });
+          console.log('\n' + historyBox('History (last 10)', lines));
+        }
+      } else if (input === '/chat' || input.startsWith('/chat ')) {
+        const chatMsg = input.startsWith('/chat ') ? input.slice(6).trim() : '';
+        if (chatMsg) {
+          console.log(chalk.gray('  (chat mode → Claude)\n'));
+          const { spawnClaude } = await import('./claude-spawner.js');
+          await spawnClaude(chatMsg, { stream: true });
+        } else {
+          console.log(chalk.gray('  Usage: /chat <message>'));
+        }
       } else if (input.startsWith('/go ')) {
         const task = input.slice(4).trim();
         if (task) {
@@ -74,12 +112,12 @@ export async function startRepl(): Promise<void> {
     while (lineQueue.length > 0) {
       const input = lineQueue.shift()!;
       if (!input) {
-        process.stdout.write('mux> ');
+        rl.prompt();
         continue;
       }
       await processLine(input);
       console.log();
-      process.stdout.write('mux> ');
+      rl.prompt();
     }
 
     processing = false;
@@ -113,11 +151,11 @@ export async function startRepl(): Promise<void> {
   console.log();
   console.log(printHeader(config, budget, limits));
   console.log();
-  console.log(chalk.gray('  Commands: /status  /go  /config  /help  /quit'));
+  console.log(chalk.gray('  Commands: /status  /go  /chat  /history  /config  /help  /quit'));
   console.log();
 
-  // Manual prompt to avoid readline double-echo on macOS
-  process.stdout.write('mux> ');
+  // Use rl.prompt() instead of manual write to work correctly with terminal: true
+  rl.prompt();
 
   // Mark as initialized and drain any buffered lines
   initialized = true;
@@ -138,7 +176,7 @@ function printHeader(
   const codexBarStr = `${progressBar(codexPct)}  ${String(codexPct).padStart(3)}%  (${budget.codex.tasksCompleted}/${codexTotal})`;
 
   const lines = [
-    chalk.bold(`agent-mux v0.4.0`),
+    chalk.bold(`agent-mux v${getVersion()}`),
     `Tier: ${chalk.bold(config.tier)} ($${config.claude.cost + config.codex.cost}/mo)`,
     '',
     `Claude  ${claudeBarStr}`,
@@ -166,6 +204,8 @@ function printHelp(): void {
     '',
     `${chalk.white('<task>')}           Route and execute a task`,
     `${chalk.white('/go <task>')}       Auto-execute mode`,
+    `${chalk.white('/chat <msg>')}      General chat (skip routing)`,
+    `${chalk.white('/history')}         Show recent routing decisions`,
     `${chalk.white('/status')}          Show budget dashboard`,
     `${chalk.white('/config')}          Show current configuration`,
     `${chalk.white('/help')}            Show this help`,

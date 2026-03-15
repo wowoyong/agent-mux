@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import chalk from 'chalk';
 import ora from 'ora';
-import { analyzeTask, routeTask } from '../routing/classifier.js';
+import { analyzeTask, routeTask, isCodingTask } from '../routing/classifier.js';
 import { spawnWithRetry } from '../codex/retry.js';
 import { loadConfig } from '../config/loader.js';
 import { getBudgetStatus } from '../budget/tracker.js';
@@ -23,6 +23,13 @@ interface RunOptions {
 }
 
 export async function runTask(taskDescription: string, options: RunOptions): Promise<void> {
+  // If not a coding task, handle as general chat
+  if (!isCodingTask(taskDescription)) {
+    console.log(chalk.gray('  (general chat → Claude)\n'));
+    await spawnClaude(taskDescription, { stream: true });
+    return;
+  }
+
   const config = await loadConfig();
   const budget = await getBudgetStatus();
 

@@ -5,10 +5,10 @@ import { saveConfig } from '../config/loader.js';
 import { detectCodexCli } from '../config/detector.js';
 import type { TierName } from '../types.js';
 
-const rl = createInterface({ input: process.stdin, output: process.stdout });
-const ask = (q: string): Promise<string> => new Promise(r => rl.question(q, r));
-
 export async function interactiveSetup(): Promise<void> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q: string): Promise<string> => new Promise(r => rl.question(q, r));
+
   console.log(chalk.bold('\n=== agent-mux Setup ===\n'));
 
   // Check Codex

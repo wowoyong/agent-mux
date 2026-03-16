@@ -28,7 +28,7 @@ export async function spawnClaude(prompt: string, options?: {
     }
 
     debug('Spawning claude with args:', args);
-    const proc = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] });
     registerProcess(proc);
 
     let stdout = '';

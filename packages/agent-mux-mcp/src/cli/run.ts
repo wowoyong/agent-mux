@@ -26,7 +26,7 @@ export async function runTask(taskDescription: string, options: RunOptions): Pro
   // If not a coding task, handle as general chat
   if (!isCodingTask(taskDescription)) {
     console.log(chalk.gray('  (general chat \u2192 Claude)\n'));
-    await spawnClaude(taskDescription, { stream: true });
+    await spawnClaude(taskDescription, { stream: true, model: 'haiku' });
     return;
   }
 
@@ -244,19 +244,13 @@ async function getDiff(worktreePath: string): Promise<string> {
   }
 }
 
-/** Shared readline instance to avoid creating new interfaces each time */
-let _sharedRl: ReturnType<typeof createInterface> | null = null;
-
-function getOrCreateReadline(): ReturnType<typeof createInterface> {
-  if (!_sharedRl) {
-    _sharedRl = createInterface({ input: process.stdin, output: process.stdout });
-    _sharedRl.on('close', () => { _sharedRl = null; });
-  }
-  return _sharedRl;
-}
-
-/** Ask user a question via stdin/stdout (reuses shared readline) */
+/** Ask user a question via stdin/stdout (creates a temporary readline and closes it after) */
 function askUser(question: string): Promise<string> {
-  const rl = getOrCreateReadline();
-  return new Promise(r => rl.question(question, (a) => r(a)));
+  return new Promise(r => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      r(answer);
+    });
+  });
 }

@@ -2,13 +2,14 @@ import { createInterface } from 'node:readline';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import chalk from 'chalk';
-import { analyzeTask, routeTask, isCodingTask } from '../routing/classifier.js';
+import { analyzeTask, routeTask, routeTaskHybrid, isCodingTask } from '../routing/classifier.js';
 import { loadConfig } from '../config/loader.js';
 import { getBudgetStatus } from '../budget/tracker.js';
 import { TIER_LIMITS } from '../config/tiers.js';
 import { spawnClaude } from './claude-spawner.js';
 import { executeOnCodex, executeOnClaude, applyWorktreeChanges, rollbackWorktree } from './executor.js';
 import { lightBox, progressBar, indent, getTerminalWidth } from './ui.js';
+import { estimateCost } from '../budget/estimator.js';
 import { debug } from './debug.js';
 
 const execAsync = promisify(execFile);
@@ -51,7 +52,11 @@ export async function runTask(taskDescription: string, options: RunOptions): Pro
     };
   } else {
     const conservationMode = config.conservation?.codexFirstOnUncertain ?? false;
-    decision = routeTask(signals, config.tier, claudePct, codexPct, taskDescription, { conservationMode });
+    if (config.routing.engine === 'hybrid') {
+      decision = await routeTaskHybrid(taskDescription, config.tier, claudePct, codexPct, { conservationMode });
+    } else {
+      decision = routeTask(signals, config.tier, claudePct, codexPct, taskDescription, { conservationMode });
+    }
   }
 
   const confPct = Math.round(decision.confidence * 100);
@@ -76,6 +81,11 @@ export async function runTask(taskDescription: string, options: RunOptions): Pro
       routeLines.push('');
       routeLines.push(chalk.gray('Signals: ' + activeSignals.join(', ')));
     }
+
+    // Cost estimate
+    const cost = estimateCost(signals, decision.target);
+    routeLines.push('');
+    routeLines.push(chalk.gray(`Est. cost: ${(cost.relativeCost * 100).toFixed(1)}% of budget (${cost.factors.join(', ') || 'base'})`));
 
     console.log('\n' + indent(lightBox('Routing', routeLines)));
   } else {

@@ -491,6 +491,78 @@ export function isCodingTask(taskDescription: string): boolean {
  * Record a user override for a previously routed task.
  * This logs the override and triggers learning for future routing.
  */
+// ─── LLM-Assisted Routing (Hybrid Engine) ───────────────────────────
+
+/**
+ * Use Claude to classify an ambiguous task when local scoring is uncertain.
+ * Only called when routing.engine is 'hybrid' and local confidence is low.
+ * Returns null if LLM call fails (graceful fallback to local decision).
+ */
+export async function llmAssistRoute(taskDescription: string): Promise<RouteTarget | null> {
+  try {
+    const { spawnClaude } = await import('../cli/claude-spawner.js');
+    const prompt = `You are a task router. Classify this coding task as either "claude" or "codex".
+
+Rules:
+- "claude": architecture, debugging complex issues, multi-file refactoring, design decisions, interactive work
+- "codex": test writing, self-contained fixes, documentation, linting, simple refactoring, security audits
+
+Task: "${taskDescription.slice(0, 500)}"
+
+Reply with ONLY one word: "claude" or "codex"`;
+
+    const result = await spawnClaude(prompt, { stream: false, timeout: 10000 });
+    if (!result.success) return null;
+
+    const answer = result.output.trim().toLowerCase();
+    if (answer === 'claude' || answer === 'codex') return answer;
+    // Try to extract from longer response
+    if (answer.includes('codex')) return 'codex';
+    if (answer.includes('claude')) return 'claude';
+    return null;
+  } catch {
+    debug('LLM-assisted routing failed, falling back to local');
+    return null;
+  }
+}
+
+/**
+ * Route with hybrid engine: local scoring first, LLM assist on low confidence.
+ */
+export async function routeTaskHybrid(
+  taskDescription: string,
+  tier: TierName,
+  claudeBudgetPct: number,
+  codexBudgetPct: number,
+  options?: { conservationMode?: boolean }
+): Promise<RouteDecision> {
+  const signals = analyzeTask(taskDescription);
+  const localDecision = routeTask(signals, tier, claudeBudgetPct, codexBudgetPct, taskDescription, options);
+
+  // If local confidence is good enough, use it
+  if (localDecision.confidence >= 0.15) return localDecision;
+
+  // Try LLM-assisted routing
+  debug('Low confidence routing, trying LLM assist...');
+  const llmTarget = await llmAssistRoute(taskDescription);
+  if (llmTarget) {
+    const decision: RouteDecision = {
+      target: llmTarget,
+      confidence: 0.75,
+      reason: `LLM-assisted routing → ${llmTarget}`,
+      signals,
+      escalated: false,
+    };
+    logRoutingDecisionAsync(taskDescription, signals, decision, 2);
+    return decision;
+  }
+
+  // Fallback to local decision
+  return localDecision;
+}
+
+// ─── User Override Recording ────────────────────────────────────────
+
 export async function recordUserOverride(
   taskDescription: string,
   override: RouteTarget

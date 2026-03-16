@@ -323,6 +323,64 @@ program
     await new Promise(() => {});
   });
 
+program
+  .command('batch')
+  .description('Queue multiple tasks and execute them sequentially')
+  .option('--timeout <sec>', 'Max wait time for input in seconds', '30')
+  .action(async (options: { timeout: string }) => {
+    const { createInterface } = await import('node:readline');
+    const timeoutSec = parseInt(options.timeout) || 30;
+
+    console.log(chalk.cyan('\n  Batch mode'));
+    console.log(chalk.gray(`  Enter tasks one per line. Empty line or ${timeoutSec}s timeout to start execution.\n`));
+
+    const tasks: string[] = [];
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+    // Collect tasks with timeout
+    await new Promise<void>((resolve) => {
+      let timer = setTimeout(resolve, timeoutSec * 1000);
+
+      rl.on('line', (line: string) => {
+        clearTimeout(timer);
+        const trimmed = line.trim();
+        if (!trimmed) {
+          rl.close();
+          resolve();
+          return;
+        }
+        tasks.push(trimmed);
+        console.log(chalk.gray(`  [${tasks.length}] ${trimmed}`));
+        timer = setTimeout(resolve, timeoutSec * 1000);
+      });
+
+      rl.on('close', () => resolve());
+    });
+
+    if (tasks.length === 0) {
+      console.log(chalk.yellow('  No tasks queued.'));
+      return;
+    }
+
+    console.log(chalk.cyan(`\n  Executing ${tasks.length} task(s)...\n`));
+
+    let completed = 0;
+    let failed = 0;
+    for (const task of tasks) {
+      console.log(chalk.white(`  [${completed + failed + 1}/${tasks.length}] ${task.slice(0, 50)}`));
+      try {
+        await runTask(task, {});
+        completed++;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(chalk.red(`  Error: ${msg}`));
+        failed++;
+      }
+    }
+
+    console.log(chalk.cyan(`\n  Batch complete: ${completed} succeeded, ${failed} failed.\n`));
+  });
+
 // Cleanup stale worktrees silently on startup (fire-and-forget)
 cleanupStaleWorktrees().catch(err => debug('Silent error cleaning stale worktrees:', err));
 

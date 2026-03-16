@@ -4,6 +4,7 @@ import { loadConfig } from '../config/loader.js';
 import { TIER_LIMITS } from '../config/tiers.js';
 import { detectCodexCli } from '../config/detector.js';
 import { box, lightBox, progressBar, label, indent } from './ui.js';
+import { detectPlugins, formatPluginStatus } from './plugins.js';
 
 export async function showStatus(): Promise<void> {
   const config = await loadConfig();
@@ -40,6 +41,15 @@ export async function showStatus(): Promise<void> {
     ...budgetBox.split('\n').map(l => '  ' + l),
     '',
   ];
+
+  // Plugins
+  const plugins = detectPlugins();
+  const installedPlugins = plugins.filter(p => p.available);
+  if (installedPlugins.length > 0) {
+    outerLines.push(chalk.gray('  Plugins:'));
+    outerLines.push(...formatPluginStatus(plugins));
+    outerLines.push('');
+  }
 
   // Warnings
   if (budget.warnings && budget.warnings.length > 0) {

@@ -149,6 +149,38 @@ export function createServer(): McpServer {
     }
   );
 
+  // Register health_check tool
+  server.tool(
+    'health_check',
+    'Check agent-mux MCP server health and connectivity',
+    {},
+    async () => {
+      const { getBudgetStatus } = await import('./budget/tracker.js');
+      const { loadConfig } = await import('./config/loader.js');
+
+      const config = await loadConfig();
+      const budget = await getBudgetStatus();
+      const uptime = process.uptime();
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            status: 'healthy',
+            version: getVersion(),
+            uptime: `${Math.round(uptime)}s`,
+            tier: config.tier,
+            budget: {
+              claude: { usagePercent: budget.claude.usagePercent, capacity: budget.claude.remainingCapacity },
+              codex: { usagePercent: budget.codex.usagePercent, capacity: budget.codex.remainingCapacity },
+            },
+            timestamp: new Date().toISOString(),
+          }, null, 2),
+        }],
+      };
+    }
+  );
+
   return server;
 }
 

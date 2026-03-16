@@ -478,8 +478,8 @@ export function isCodingTask(taskDescription: string): boolean {
     /\b(function|class|module|component|api|endpoint|database|server|client|frontend|backend|service|controller|model|schema|type|interface|route|middleware|hook|handler|util|helper|test|spec)\b/i,
     /\b(bug|error|crash|issue|feature|task|ticket|pr|pull request|commit|branch|merge|deploy|release)\b/i,
     /\.(ts|js|py|rb|go|rs|java|cpp|c|h|css|html|jsx|tsx|vue|svelte|json|yaml|yml|toml|sql|sh|bash|zsh)$/i,
-    // Korean coding keywords
-    /\b(테스트|코드|함수|클래스|모듈|컴포넌트|버그|에러|리팩토링|배포|구현|생성|수정|삭제|디버그|설계|아키텍처)\b/,
+    // Korean coding keywords (no \b — word boundaries don't work with Korean)
+    /(테스트|코드|함수|클래스|모듈|컴포넌트|버그|에러|리팩토링|배포|구현|생성|수정|삭제|디버그|설계|아키텍처)/,
   ];
 
   return codingIndicators.some(pattern => pattern.test(taskDescription));

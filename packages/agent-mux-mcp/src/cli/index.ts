@@ -272,6 +272,57 @@ program
     }
   });
 
+program
+  .command('watch <task>')
+  .description('Re-run task on file changes (TDD workflow)')
+  .option('-p, --pattern <glob>', 'File glob pattern to watch', 'src/**/*')
+  .option('-d, --debounce <ms>', 'Debounce delay in ms', '1000')
+  .action(async (task: string, options: { pattern: string; debounce: string }) => {
+    const { watch } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const debounceMs = parseInt(options.debounce) || 1000;
+
+    console.log(chalk.cyan(`\n  Watching: ${options.pattern}`));
+    console.log(chalk.gray(`  Task: "${task}"`));
+    console.log(chalk.gray(`  Debounce: ${debounceMs}ms`));
+    console.log(chalk.gray('  Press Ctrl+C to stop\n'));
+
+    // Initial run
+    console.log(chalk.gray('  --- Initial run ---'));
+    await runTask(task, {});
+
+    // Watch for changes
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let running = false;
+
+    const watchDir = resolve(options.pattern.split('*')[0] || '.');
+    const watcher = watch(watchDir, { recursive: true }, (_event, filename) => {
+      if (!filename || running) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(async () => {
+        running = true;
+        console.log(chalk.gray(`\n  --- Change detected: ${filename} ---`));
+        try {
+          await runTask(task, {});
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(chalk.red(`  Error: ${msg}`));
+        }
+        running = false;
+      }, debounceMs);
+    });
+
+    // Keep alive
+    process.on('SIGINT', () => {
+      watcher.close();
+      console.log(chalk.gray('\n  Watch stopped.'));
+      process.exit(0);
+    });
+
+    // Prevent exit
+    await new Promise(() => {});
+  });
+
 // Cleanup stale worktrees silently on startup (fire-and-forget)
 cleanupStaleWorktrees().catch(err => debug('Silent error cleaning stale worktrees:', err));
 

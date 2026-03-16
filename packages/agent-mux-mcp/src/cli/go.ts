@@ -58,14 +58,41 @@ export async function goTask(taskDescription: string, options: GoOptions): Promi
       }
     }
 
-    // Phase 2: Codex tasks (sequential for Plus tier, could be parallel for Pro)
+    // Phase 2: Codex tasks (parallel for Power tier, sequential otherwise)
     if (codexTasks.length > 0) {
-      console.log('\n' + section('Phase 2: Codex'));
-      for (const task of codexTasks) {
-        const start = Date.now();
-        const r = await executeSubtask(task, 'codex');
-        const elapsed = Math.round((Date.now() - start) / 1000);
-        results.push({ id: task.id, desc: task.description.slice(0, 40), elapsed, files: r.files, success: r.success });
+      const limits = TIER_LIMITS[config.tier];
+      const concurrent = limits.concurrent;
+
+      if (concurrent > 1 && codexTasks.length > 1) {
+        console.log('\n' + section(`Phase 2: Codex (${Math.min(concurrent, codexTasks.length)} concurrent)`));
+
+        // Process in batches of `concurrent`
+        for (let i = 0; i < codexTasks.length; i += concurrent) {
+          const batch = codexTasks.slice(i, i + concurrent);
+          const batchResults = await Promise.allSettled(
+            batch.map(async (task) => {
+              const start = Date.now();
+              const r = await executeSubtask(task, 'codex');
+              const elapsed = Math.round((Date.now() - start) / 1000);
+              return { id: task.id, desc: task.description.slice(0, 40), elapsed, files: r.files, success: r.success };
+            })
+          );
+          for (const br of batchResults) {
+            if (br.status === 'fulfilled') {
+              results.push(br.value);
+            } else {
+              results.push({ id: '?', desc: 'failed', elapsed: 0, files: 0, success: false });
+            }
+          }
+        }
+      } else {
+        console.log('\n' + section('Phase 2: Codex'));
+        for (const task of codexTasks) {
+          const start = Date.now();
+          const r = await executeSubtask(task, 'codex');
+          const elapsed = Math.round((Date.now() - start) / 1000);
+          results.push({ id: task.id, desc: task.description.slice(0, 40), elapsed, files: r.files, success: r.success });
+        }
       }
     }
 

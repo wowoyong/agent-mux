@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { debug } from '../cli/debug.js';
 
 const execAsync = promisify(execFile);
 
@@ -40,13 +41,13 @@ export async function mergeWorktree(branch: string, message: string): Promise<vo
 export async function cleanupWorktree(path: string, branch: string): Promise<void> {
   try {
     await removeWorktree(path, true);
-  } catch {
-    // Worktree may already be removed
+  } catch (err) {
+    debug('Silent error removing worktree:', err);
   }
   try {
     await execAsync('git', ['branch', '-D', branch]);
-  } catch {
-    // Branch may already be deleted
+  } catch (err) {
+    debug('Silent error deleting branch:', err);
   }
   await execAsync('git', ['worktree', 'prune']);
 }
@@ -61,8 +62,8 @@ export async function cleanupStaleWorktrees(): Promise<number> {
 
   try {
     entries = await readdir(worktreeDir);
-  } catch {
-    // Directory doesn't exist — nothing to clean
+  } catch (err) {
+    debug('Silent error reading worktree dir:', err);
     return 0;
   }
 
@@ -78,8 +79,8 @@ export async function cleanupStaleWorktrees(): Promise<number> {
     try {
       await cleanupWorktree(path, branch);
       cleaned++;
-    } catch {
-      // Best-effort cleanup
+    } catch (err) {
+      debug('Silent error cleaning up worktree:', err);
     }
   }
 

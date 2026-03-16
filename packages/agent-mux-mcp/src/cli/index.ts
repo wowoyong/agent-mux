@@ -149,12 +149,25 @@ program
 program
   .command('config [key] [value]')
   .description('View or set configuration')
-  .action(async (key?: string) => {
-    const { loadConfig } = await import('../config/loader.js');
+  .action(async (key?: string, value?: string) => {
+    const { loadConfig, saveConfig } = await import('../config/loader.js');
     const config = await loadConfig();
     if (!key) {
       console.log(JSON.stringify(config, null, 2));
+      return;
     }
+    if (!value) {
+      const val = key.split('.').reduce((o: any, k: string) => o?.[k], config as any);
+      console.log(`${key} = ${JSON.stringify(val)}`);
+      return;
+    }
+    // Set nested value
+    const keys = key.split('.');
+    const last = keys.pop()!;
+    const target = keys.reduce((o: any, k: string) => (o[k] = o[k] ?? {}, o[k]), config as any);
+    target[last] = value === 'true' ? true : value === 'false' ? false : !isNaN(Number(value)) ? Number(value) : value;
+    await saveConfig(config);
+    console.log(chalk.green(`  ✓ ${key} = ${value}`));
   });
 
 program
@@ -209,9 +222,9 @@ program
   });
 
 // Cleanup stale worktrees silently on startup (fire-and-forget)
-cleanupStaleWorktrees().catch(() => {});
+cleanupStaleWorktrees().catch(err => debug('Silent error cleaning stale worktrees:', err));
 
 // Check for updates silently on startup (fire-and-forget, non-blocking)
-checkForUpdates(getVersion()).catch(() => {});
+checkForUpdates(getVersion()).catch(err => debug('Silent error checking for updates:', err));
 
 program.parse();

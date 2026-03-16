@@ -423,7 +423,7 @@ function checkLearnedOverridesSync(signals: TaskSignals): LearnedOverride | null
     loadOverrides().then(overrides => {
       _cachedOverrides = overrides;
       _cacheTimestamp = Date.now();
-    }).catch(() => {});
+    }).catch(err => debug('Silent error refreshing overrides:', err));
   }
 
   if (_cachedOverrides && _cachedOverrides.length > 0) {
@@ -461,7 +461,7 @@ function logRoutingDecisionAsync(
     },
   };
   // Fire-and-forget
-  logRoutingDecision(entry).catch(() => {});
+  logRoutingDecision(entry).catch(err => debug('Silent error logging routing decision:', err));
 }
 
 // ─── General Chat Detection ─────────────────────────────────────────

@@ -1,6 +1,6 @@
 {
   "name": "agent-mux-mcp",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "MCP server for agent-mux — routes tasks between Claude Code and Codex CLI based on complexity, optimizing AI coding subscription costs",
   "main": "dist/src/server.js",
   "bin": {
@@ -55,7 +55,8 @@
     "chalk": "^4.1.2",
     "commander": "^14.0.3",
     "ora": "^6.3.1",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

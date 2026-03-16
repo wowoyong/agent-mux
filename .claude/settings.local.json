@@ -1,0 +1,14 @@
+{
+  "enabledMcpjsonServers": [
+    "fetch",
+    "git",
+    "filesystem",
+    "postgres",
+    "github",
+    "playwright",
+    "mac-wiki",
+    "memory",
+    "docker",
+    "sqlite-voca"
+  ]
+}

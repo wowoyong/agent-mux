@@ -6,10 +6,19 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { spawnCodex } from './tools/spawn-codex.js';
 import { checkBudget } from './tools/check-budget.js';
 import { getStatus } from './tools/get-status.js';
 import { handleDecomposeTask } from './tools/decompose-task.js';
+
+function getVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8'));
+    return pkg.version;
+  } catch { return 'unknown'; }
+}
 
 /**
  * Create and configure the MCP server with all agent-mux tools.
@@ -17,7 +26,7 @@ import { handleDecomposeTask } from './tools/decompose-task.js';
 export function createServer(): McpServer {
   const server = new McpServer({
     name: 'agent-mux-mcp',
-    version: '0.1.0',
+    version: getVersion(),
   });
 
   // Register spawn_codex tool

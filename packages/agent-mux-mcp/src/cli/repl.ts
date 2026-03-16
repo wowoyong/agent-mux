@@ -37,9 +37,15 @@ export async function startRepl(): Promise<void> {
     input: process.stdin,
     output: process.stdout,
     terminal: isTTY,
-    prompt: 'mux> ',
+    prompt: chalk.cyan('mux') + chalk.gray('> '),
     historySize: 100,
     completer,
+  });
+
+  // SIGINT handler: cancel running task gracefully without exiting
+  rl.on('SIGINT', () => {
+    console.log(chalk.yellow('\n  Task cancelled.'));
+    rl.prompt();
   });
 
   // Queue lines and process sequentially; buffer lines until init completes
@@ -47,6 +53,7 @@ export async function startRepl(): Promise<void> {
   let processing = false;
   let inputClosed = false;
   let initialized = false;
+  let emptyCount = 0;
 
   async function processLine(input: string): Promise<void> {
     try {
@@ -126,9 +133,15 @@ export async function startRepl(): Promise<void> {
     while (lineQueue.length > 0) {
       const input = lineQueue.shift()!;
       if (!input) {
+        emptyCount++;
+        if (emptyCount >= 3) {
+          console.log(chalk.gray('  Type a task or /help for commands'));
+          emptyCount = 0;
+        }
         rl.prompt();
         continue;
       }
+      emptyCount = 0;
       await processLine(input);
       console.log();
       rl.prompt();

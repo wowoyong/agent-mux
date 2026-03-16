@@ -21,14 +21,23 @@ export async function executeOnCodex(
   task: string,
   options?: ExecutionOptions
 ): Promise<{ result: EscalationResult; spinner: ReturnType<typeof ora>; elapsed: number }> {
-  const spinner = ora({ text: chalk.green('Codex working...'), spinner: 'dots' }).start();
   const start = Date.now();
+  const spinner = ora({ text: chalk.green('Codex working... (0s)'), spinner: 'dots' }).start();
+  const timer = setInterval(() => {
+    const sec = Math.round((Date.now() - start) / 1000);
+    spinner.text = chalk.green(`Codex working... (${sec}s)`);
+  }, 1000);
 
-  const result = await spawnWithRetry({
-    prompt: task,
-    complexity: 'medium',
-    timeout: CODEX_TIMEOUT_MEDIUM,
-  });
+  let result: EscalationResult;
+  try {
+    result = await spawnWithRetry({
+      prompt: task,
+      complexity: 'medium',
+      timeout: CODEX_TIMEOUT_MEDIUM,
+    });
+  } finally {
+    clearInterval(timer);
+  }
 
   const elapsed = Math.round((Date.now() - start) / 1000);
 

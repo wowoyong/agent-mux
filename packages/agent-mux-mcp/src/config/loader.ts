@@ -68,6 +68,39 @@ export async function loadConfig(projectRoot?: string): Promise<MuxConfig> {
   return getDefaultConfig('standard');
 }
 
+const VALID_TIERS = new Set(['budget', 'standard', 'premium', 'power']);
+const VALID_CLAUDE_PLANS = new Set(['pro', 'max_5x', 'max_20x']);
+const VALID_CODEX_PLANS = new Set(['plus', 'pro']);
+const VALID_CODEX_MODES = new Set(['local', 'cloud_and_local']);
+const VALID_ENGINES = new Set(['local', 'hybrid']);
+const VALID_BIASES = new Set(['codex', 'balanced', 'claude', 'adaptive']);
+const VALID_STRATEGIES = new Set(['fix', 'fix_then_redo', 'full']);
+
+function validateEnum<T extends string>(value: unknown, valid: Set<string>, fallback: T, label: string): T {
+  if (typeof value === 'string' && valid.has(value)) return value as T;
+  if (value !== undefined) debug(`Invalid ${label}: "${value}", using default "${fallback}"`);
+  return fallback;
+}
+
+function validateNumber(value: unknown, min: number, max: number, fallback: number, label: string): number {
+  if (typeof value === 'number' && value >= min && value <= max) return value;
+  if (value !== undefined && value !== null) debug(`Invalid ${label}: ${value}, using default ${fallback}`);
+  return fallback;
+}
+
+/**
+ * Validate config and return warnings for invalid values.
+ */
+export function validateConfig(config: MuxConfig): string[] {
+  const errors: string[] = [];
+  if (!VALID_TIERS.has(config.tier)) errors.push(`Invalid tier "${config.tier}". Valid: ${[...VALID_TIERS].join(', ')}`);
+  if (!VALID_ENGINES.has(config.routing.engine)) errors.push(`Invalid routing.engine "${config.routing.engine}"`);
+  if (!VALID_BIASES.has(config.routing.bias)) errors.push(`Invalid routing.bias "${config.routing.bias}"`);
+  if (config.routing.split.claude + config.routing.split.codex !== 100) errors.push(`routing.split must sum to 100`);
+  if (config.claude.cost < 0 || config.codex.cost < 0) errors.push('Cost values cannot be negative');
+  return errors;
+}
+
 /**
  * Get the default configuration for a given tier.
  *
@@ -97,9 +130,10 @@ export function getDefaultConfig(tier: TierName): MuxConfig {
 
 /**
  * Merge parsed YAML config with default values.
+ * Validates all fields and falls back to defaults for invalid values.
  */
 function mergeWithDefaults(parsed: Record<string, unknown>): MuxConfig {
-  const tierName = (parsed['tier'] as TierName) ?? 'standard';
+  const tierName = validateEnum(parsed['tier'], VALID_TIERS, 'standard' as TierName, 'tier');
   const defaults = getDefaultConfig(tierName);
 
   const claude = parsed['claude'] as Record<string, unknown> | undefined;
@@ -107,34 +141,55 @@ function mergeWithDefaults(parsed: Record<string, unknown>): MuxConfig {
   const routing = parsed['routing'] as Record<string, unknown> | undefined;
   const budget = parsed['budget'] as Record<string, unknown> | undefined;
 
+  const splitClaude = validateNumber(
+    (routing?.['split'] as Record<string, unknown>)?.['claude'],
+    0, 100, defaults.routing.split.claude, 'routing.split.claude'
+  );
+  const splitCodex = validateNumber(
+    (routing?.['split'] as Record<string, unknown>)?.['codex'],
+    0, 100, defaults.routing.split.codex, 'routing.split.codex'
+  );
+  if (splitClaude + splitCodex !== 100) {
+    debug(`Warning: routing.split sums to ${splitClaude + splitCodex}, expected 100`);
+  }
+
+  let warnings = defaults.budget.warnings;
+  if (budget?.['warnings'] && Array.isArray(budget['warnings'])) {
+    const valid = (budget['warnings'] as unknown[]).filter(
+      (v): v is number => typeof v === 'number' && v >= 0 && v <= 100
+    );
+    if (valid.length > 0) warnings = valid;
+  }
+
   return {
-    schemaVersion: (parsed['schemaVersion'] as number) ?? defaults.schemaVersion,
+    schemaVersion: validateNumber(parsed['schemaVersion'] as number, 1, 99, defaults.schemaVersion, 'schemaVersion'),
     tier: tierName,
     claude: {
-      plan: (claude?.['plan'] as MuxConfig['claude']['plan']) ?? defaults.claude.plan,
-      cost: (claude?.['cost'] as number) ?? defaults.claude.cost,
+      plan: validateEnum(claude?.['plan'], VALID_CLAUDE_PLANS, defaults.claude.plan, 'claude.plan'),
+      cost: validateNumber(claude?.['cost'], 0, 10000, defaults.claude.cost, 'claude.cost'),
     },
     codex: {
-      plan: (codex?.['plan'] as MuxConfig['codex']['plan']) ?? defaults.codex.plan,
-      cost: (codex?.['cost'] as number) ?? defaults.codex.cost,
-      mode: (codex?.['mode'] as MuxConfig['codex']['mode']) ?? defaults.codex.mode,
+      plan: validateEnum(codex?.['plan'], VALID_CODEX_PLANS, defaults.codex.plan, 'codex.plan'),
+      cost: validateNumber(codex?.['cost'], 0, 10000, defaults.codex.cost, 'codex.cost'),
+      mode: validateEnum(codex?.['mode'], VALID_CODEX_MODES, defaults.codex.mode, 'codex.mode'),
     },
     routing: {
-      engine: ((routing?.['engine'] as string) ?? defaults.routing.engine) as MuxConfig['routing']['engine'],
-      bias: ((routing?.['bias'] as string) ?? defaults.routing.bias) as MuxConfig['routing']['bias'],
-      split: {
-        claude: ((routing?.['split'] as Record<string, unknown>)?.['claude'] as number) ?? defaults.routing.split.claude,
-        codex: ((routing?.['split'] as Record<string, unknown>)?.['codex'] as number) ?? defaults.routing.split.codex,
-      },
+      engine: validateEnum(routing?.['engine'], VALID_ENGINES, defaults.routing.engine, 'routing.engine'),
+      bias: validateEnum(routing?.['bias'], VALID_BIASES, defaults.routing.bias, 'routing.bias'),
+      split: { claude: splitClaude, codex: splitCodex },
       escalation: {
         enabled: ((routing?.['escalation'] as Record<string, unknown>)?.['enabled'] as boolean) ?? defaults.routing.escalation.enabled,
-        strategy: (((routing?.['escalation'] as Record<string, unknown>)?.['strategy'] as string) ?? defaults.routing.escalation.strategy) as MuxConfig['routing']['escalation']['strategy'],
-        maxRetries: ((routing?.['escalation'] as Record<string, unknown>)?.['maxRetries'] as number) ?? defaults.routing.escalation.maxRetries,
+        strategy: validateEnum(
+          (routing?.['escalation'] as Record<string, unknown>)?.['strategy'],
+          VALID_STRATEGIES, defaults.routing.escalation.strategy, 'routing.escalation.strategy'
+        ),
+        maxRetries: validateNumber(
+          (routing?.['escalation'] as Record<string, unknown>)?.['maxRetries'],
+          0, 10, defaults.routing.escalation.maxRetries, 'routing.escalation.maxRetries'
+        ),
       },
     },
-    budget: {
-      warnings: (budget?.['warnings'] as number[]) ?? defaults.budget.warnings,
-    },
+    budget: { warnings },
     denyList: (parsed['denyList'] as string[]) ?? defaults.denyList,
   };
 }

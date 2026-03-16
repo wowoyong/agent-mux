@@ -33,3 +33,10 @@ jobs:
       - name: Test
         working-directory: packages/agent-mux-mcp
         run: npm test
+
+      - name: CLI Smoke Test
+        working-directory: packages/agent-mux-mcp
+        run: |
+          node dist/bin/cli.js --help
+          node dist/bin/cli.js --version
+          node dist/bin/cli.js --dry-run "write tests" 2>&1 || true

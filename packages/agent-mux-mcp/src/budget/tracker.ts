@@ -19,28 +19,28 @@ const sessionStart = Date.now();
  * Record a Claude message against the budget.
  * Persists to JSONL file (fire-and-forget).
  */
-export function recordClaudeMessage(taskId?: string): void {
+export async function recordClaudeMessage(taskId?: string): Promise<void> {
   sessionClaudeMessages++;
-  appendUsageRecord({
+  await appendUsageRecord({
     timestamp: Date.now(),
     agent: 'claude',
     taskId: taskId ?? `claude-${sessionClaudeMessages}`,
     success: true,
-  }).catch(() => {}); // fire-and-forget
+  });
 }
 
 /**
  * Record a Codex task against the budget.
  * Persists to JSONL file (fire-and-forget).
  */
-export function recordCodexTask(taskId?: string, success: boolean = true): void {
+export async function recordCodexTask(taskId?: string, success: boolean = true): Promise<void> {
   sessionCodexTasks++;
-  appendUsageRecord({
+  await appendUsageRecord({
     timestamp: Date.now(),
     agent: 'codex',
     taskId: taskId ?? `codex-${sessionCodexTasks}`,
     success,
-  }).catch(() => {}); // fire-and-forget
+  });
 }
 
 /**
@@ -154,9 +154,9 @@ export async function getAgentBudget(agent: RouteTarget): Promise<AgentBudget> {
  */
 export async function recordTask(agent: RouteTarget, taskId: string): Promise<void> {
   if (agent === 'claude') {
-    recordClaudeMessage(taskId);
+    await recordClaudeMessage(taskId);
   } else {
-    recordCodexTask(taskId);
+    await recordCodexTask(taskId);
   }
 }
 

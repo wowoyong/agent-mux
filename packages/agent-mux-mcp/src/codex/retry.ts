@@ -14,6 +14,8 @@ import type { SpawnCodexInput, SpawnCodexOutput, EscalationResult, EscalationStr
 export interface RetryOptions {
   codexPath?: string;
   stallThresholdMs?: number;
+  /** Callback for progress updates based on JSONL events */
+  onProgress?: (event: string) => void;
 }
 
 export async function spawnWithRetry(

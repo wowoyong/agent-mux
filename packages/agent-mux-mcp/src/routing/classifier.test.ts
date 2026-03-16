@@ -460,6 +460,30 @@ describe('routeTask', () => {
     });
   });
 
+  describe('Conservation mode', () => {
+    it('routes ambiguous task to codex when conservation mode is enabled', () => {
+      // All signals off = score 0 = low confidence = tiebreaker
+      // Standard tier normally defaults to claude, but conservation mode overrides
+      const signals = defaultSignals();
+      const decision = routeTask(signals, 'standard', 1.0, 1.0, '', { conservationMode: true });
+      expect(decision.target).toBe('codex');
+    });
+
+    it('still routes to claude when conservation mode is off on standard tier', () => {
+      const signals = defaultSignals();
+      const decision = routeTask(signals, 'standard', 1.0, 1.0, '', { conservationMode: false });
+      expect(decision.target).toBe('claude');
+    });
+
+    it('does not affect hard rule routing', () => {
+      // MCP tasks always go to claude regardless of conservation mode
+      const signals = defaultSignals({ needsMCP: true });
+      const decision = routeTask(signals, 'standard', 1.0, 1.0, '', { conservationMode: true });
+      expect(decision.target).toBe('claude');
+      expect(decision.confidence).toBe(1.0);
+    });
+  });
+
   describe('End-to-end routing accuracy', () => {
     it('routes "design payment system architecture" to claude', () => {
       const signals = analyzeTask('design payment system architecture');

@@ -25,7 +25,7 @@ function getVersion(): string {
     // Go up from dist/src/cli/ to package root
     const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'package.json'), 'utf-8'));
     return pkg.version;
-  } catch { return 'unknown'; }
+  } catch (err) { debug('Failed to read package.json version:', err); return 'unknown'; }
 }
 
 // ─── Git repo check ──────────────────────────────────────────────────
@@ -33,7 +33,7 @@ function isGitRepo(): boolean {
   try {
     execFileSync('git', ['rev-parse', '--is-inside-work-tree'], { stdio: 'pipe' });
     return true;
-  } catch { return false; }
+  } catch (err) { debug('Git repo check failed:', err); return false; }
 }
 
 // ─── Graceful shutdown ───────────────────────────────────────────────
@@ -42,7 +42,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   for (const proc of getActiveProcesses()) {
     proc.kill('SIGTERM');
   }
-  try { await cleanupStaleWorktrees(); } catch {}
+  try { await cleanupStaleWorktrees(); } catch (err) { debug('Cleanup during shutdown failed:', err); }
   process.exit(0);
 }
 
@@ -63,7 +63,8 @@ program
   .name('mux')
   .description('agent-mux — Route tasks between Claude Code and Codex CLI')
   .version(getVersion())
-  .option('--debug', 'Show detailed routing signals and execution info');
+  .option('--debug', 'Show detailed routing signals and execution info')
+  .option('--resume', 'Resume previous session');
 
 program
   .argument('[task]', 'Task description to route and execute')
@@ -94,8 +95,8 @@ program
           const content = await fsPromises.readFile(f, 'utf-8');
           contexts.push(`\n--- File: ${f} ---\n${content}\n`);
           debug(`Loaded file context: ${f} (${content.length} chars)`);
-        } catch {
-          debug(`Failed to read file context: ${f}`);
+        } catch (err) {
+          debug(`Failed to read file context: ${f}`, err);
         }
       }
       task = task + contexts.join('');
@@ -111,7 +112,8 @@ program
       const signals = analyzeTask(task);
       const claudePct = budget.claude.usagePercent / 100;
       const codexPct = budget.codex.usagePercent / 100;
-      const decision = routeTask(signals, config.tier, claudePct, codexPct, task);
+      const conservationMode = config.conservation?.codexFirstOnUncertain ?? false;
+      const decision = routeTask(signals, config.tier, claudePct, codexPct, task, { conservationMode });
       if (decision.target === 'codex') {
         console.error('\n  \u26a0 Not a git repository. Codex tasks require a git project.');
         console.error('    \u2022 cd into a git project directory');
@@ -186,7 +188,7 @@ program
       await fs.access(configPath);
       console.log(chalk.yellow('  .agent-mux/config.yaml already exists.'));
       return;
-    } catch {}
+    } catch (err) { debug('Config not found (expected for init):', err); }
 
     // Create config
     await fs.mkdir(configDir, { recursive: true });
@@ -196,16 +198,65 @@ program
     // Add .codex-worktrees/ to .gitignore
     try {
       let gitignore = '';
-      try { gitignore = await fs.readFile(gitignorePath, 'utf-8'); } catch {}
+      try { gitignore = await fs.readFile(gitignorePath, 'utf-8'); } catch (err) { debug('No existing .gitignore:', err); }
       if (!gitignore.includes('.codex-worktrees')) {
         await fs.appendFile(gitignorePath, '\n# agent-mux\n.codex-worktrees/\n.agent-mux/\n');
       }
-    } catch {}
+    } catch (err) { debug('Failed to update .gitignore:', err); }
 
     console.log(chalk.green('  Initialized agent-mux'));
     console.log(chalk.gray('    Config: .agent-mux/config.yaml'));
     console.log(chalk.gray('    Added .codex-worktrees/ to .gitignore'));
     console.log(chalk.gray('\n    Run: mux setup   to customize tier'));
+  });
+
+program
+  .command('undo')
+  .description('Undo the last Codex merge (git revert)')
+  .action(async () => {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const exec = promisify(execFile);
+
+    try {
+      // Find last merge commit with "mux:" prefix
+      const { stdout: log } = await exec('git', ['log', '--oneline', '--merges', '-10']);
+      const muxMerge = log.split('\n').find(line => line.includes('mux:'));
+
+      if (!muxMerge) {
+        console.log(chalk.yellow('  No recent mux merge commits found.'));
+        return;
+      }
+
+      const commitHash = muxMerge.split(' ')[0];
+      console.log(chalk.gray(`  Reverting: ${muxMerge.trim()}`));
+
+      await exec('git', ['revert', commitHash, '--no-edit']);
+      console.log(chalk.green('  ✓ Reverted successfully'));
+    } catch (err: any) {
+      console.log(chalk.red(`  Failed to revert: ${err.message}`));
+    }
+  });
+
+program
+  .command('export')
+  .description('Export usage statistics')
+  .option('--format <format>', 'Output format: json or csv', 'json')
+  .option('--days <days>', 'Number of days to export', '7')
+  .action(async (options) => {
+    const { loadUsageRecords } = await import('../budget/persistence.js');
+    const days = parseInt(options.days) || 7;
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    const records = await loadUsageRecords(since);
+
+    if (options.format === 'csv') {
+      console.log('timestamp,agent,taskId,success');
+      for (const r of records) {
+        console.log(`${new Date(r.timestamp).toISOString()},${r.agent},${r.taskId},${r.success}`);
+      }
+    } else {
+      console.log(JSON.stringify(records, null, 2));
+    }
   });
 
 program

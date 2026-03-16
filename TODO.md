@@ -1,7 +1,7 @@
 # agent-mux TODO
 
-> Last updated: 2026-03-15
-> Current version: v0.5.0
+> Last updated: 2026-03-16
+> Current version: v0.7.0
 
 ---
 
@@ -19,13 +19,13 @@
 
 - [x] **REPL arrow-key / history navigation broken** — ~~`terminal: false`로 인해 화살표키 히스토리 불가.~~ **완료**: `cli/repl.ts:35-43`에서 `process.stdin.isTTY` 감지 후 TTY면 `terminal: true`, 파이프면 `terminal: false`. `historySize: 100` 설정.
 
-- [ ] **`config set` command does nothing** — `mux config key value`가 key와 value 인자를 받지만, action 핸들러(`cli/index.ts:150-158`)에서 value 파라미터를 사용하지 않음. `loadConfig()`만 호출하고 `saveConfig()`는 호출하지 않음. `config/loader.ts`에 `saveConfig()` 함수가 이미 존재하므로 연결만 하면 됨. Files: `cli/index.ts:150-158`, `config/loader.ts:148`
+- [x] **`config set` command does nothing** — ~~`loadConfig()`만 호출하고 `saveConfig()`는 호출하지 않음.~~ **완료** (v0.6.0): `cli/index.ts`에서 `value` 파라미터를 받아 nested key 설정 후 `saveConfig()` 호출. 타입 자동 변환(boolean/number/string) 지원.
 
 - [x] **Claude CLI not found gives cryptic error** — ~~ENOENT 에러를 그대로 출력.~~ **완료**: `cli/claude-spawner.ts:49-56`에서 `err.code === 'ENOENT'` 감지 후 `"Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code"` 메시지 반환.
 
 - [x] **Codex CLI not found gives no guidance at runtime** — ~~Codex 미설치 시 spawn 실패 에러.~~ **완료**: `codex/spawner.ts:136-156`에서 ENOENT 캐치 후 `"Codex CLI not found. Install: npm install -g @openai/codex"` 메시지 반환.
 
-- [ ] **MCP 서버 버전 하드코딩** — `server.ts:19`에서 `version: '0.1.0'`으로 하드코딩. `package.json`은 `0.5.0`인데 MCP 서버는 `0.1.0` 보고. `package.json`에서 읽거나 일치시켜야 함. Files: `src/server.ts:19`
+- [x] **MCP 서버 버전 하드코딩** — ~~`server.ts:19`에서 `version: '0.1.0'`으로 하드코딩.~~ **완료** (v0.6.0): `server.ts`에 `getVersion()` 함수 추가, `package.json`에서 동적으로 버전 로딩.
 
 ---
 
@@ -39,21 +39,21 @@
 
 - [x] **Worktree cleanup on abnormal exit** — ~~프로세스 크래시 시 고아 worktree 누적.~~ **완료**: (a) `codex/worktree.ts:58-87`에 `cleanupStaleWorktrees()` 구현, (b) `cli/index.ts:199-209`에 `mux clean` 명령어 추가, (c) `cli/index.ts:212`에서 시작 시 자동 정리(fire-and-forget), (d) `gracefulShutdown()`에서도 정리.
 
-- [ ] **Progress feedback during Codex execution** — 현재 `ora` 스피너로 "Codex working..." 표시만 함(`cli/executor.ts:24`). 경과 시간 카운터, JSONL 이벤트 기반 상태 업데이트(e.g., "Reading files...", "Writing code..."), 복잡도 기반 예상 시간 표시 등이 필요. `codex/parser.ts`의 `JsonlStreamParser`에서 이벤트를 파싱하고 있으나 UI에 전달하지 않음. Files: `cli/executor.ts`, `codex/spawner.ts`, `codex/parser.ts`
+- [x] **Progress feedback during Codex execution** — ~~`ora` 스피너로 "Codex working..." 표시만 함.~~ **완료** (v0.6.0): `cli/executor.ts`에 1초 간격 경과 시간 카운터 추가. `setInterval`로 `Codex working... (Ns)` 실시간 업데이트. 완료 시 파일 수 + 총 시간 표시.
 
 - [x] **Timeout values hardcoded** — ~~여러 파일에 420_000, 90_000 등 하드코딩.~~ **완료**: `constants.ts`에 `CODEX_TIMEOUT_LOW/MEDIUM/HIGH`, `CODEX_TIMEOUT_PLUS_CAP`, `STALL_THRESHOLD`, `STALL_CHECK_INTERVAL`, `CLAUDE_TIMEOUT_DEFAULT` 중앙화. `executor.ts`, `spawner.ts`, `claude-spawner.ts` 모두 이 상수 참조.
 
 - [x] **`mux init` command** — ~~프로젝트별 설정 초기화 없음.~~ **완료**: `cli/index.ts:161-196`에 `mux init` 구현. `.agent-mux/config.yaml` 생성 + `.gitignore`에 `.codex-worktrees/`와 `.agent-mux/` 추가. 이미 존재하면 경고.
 
-- [ ] **Config validation** — 설정값 유효성 검증 없음. 잘못된 tier 이름, 음수 cost, split 합계가 100이 아닌 경우, 알 수 없는 routing engine 값 등이 무시됨. `config/loader.ts:101-139`의 `mergeWithDefaults()`에서 타입 캐스팅만 하고 범위/유효성 체크를 하지 않음. Files: `config/loader.ts`
+- [x] **Config validation** — ~~설정값 유효성 검증 없음.~~ **완료** (v0.7.0): `config/loader.ts`의 `mergeWithDefaults()`에 `validateEnum()`/`validateNumber()` 헬퍼 도입. tier, plan, engine, bias, strategy, cost, split, maxRetries, warnings 배열 모두 범위/유효값 검증. 잘못된 값은 default로 폴백 + `debug()` 로깅. split 합계 불일치 시 경고.
 
-- [ ] **`askUser()` creates a new readline interface each time** — `cli/run.ts:234-237`에서 매 호출마다 새 `createInterface` 생성/소멸. REPL 내부에서 실행 시 readline 충돌 가능. 공유 인스턴스 또는 REPL의 readline 재사용 필요. Files: `cli/run.ts:234-237`
+- [x] **`askUser()` creates a new readline interface each time** — ~~매 호출마다 새 `createInterface` 생성/소멸.~~ **완료** (v0.7.0): `cli/run.ts`에 `_sharedRl` 싱글턴 패턴 도입. `getOrCreateReadline()`이 인스턴스를 재사용하고, `close` 이벤트 시 null로 리셋.
 
 ---
 
 ## Medium Priority (Nice to have)
 
-- [ ] **REPL prompt colorization** — `mux>` 프롬프트가 일반 텍스트. `chalk.cyan('mux>')` 등으로 컬러화하고, 선택적으로 현재 tier나 예산 상태를 인라인 표시. Files: `cli/repl.ts:40`
+- [x] **REPL prompt colorization** — ~~`mux>` 프롬프트가 일반 텍스트.~~ **완료** (v0.6.0): `cli/repl.ts:40`에서 `chalk.cyan('mux') + chalk.gray('> ')` 적용.
 
 - [x] **Tab completion in REPL** — ~~REPL에서 `/` 명령어 자동완성 없음.~~ **완료**: `cli/repl.ts:26-33`에 `completer()` 함수 구현. `/status`, `/go`, `/config`, `/help`, `/quit`, `/chat`, `/history` 자동완성 지원.
 
@@ -61,7 +61,7 @@
 
 - [x] **File/directory context passing** — ~~태스크에 파일 컨텍스트 전달 불가.~~ **완료**: `cli/index.ts:75,87-102`에 `-f, --file <files...>` 옵션 추가. 지정된 파일 내용을 읽어 태스크 설명에 첨부.
 
-- [ ] **Cancel running task gracefully** — Codex 실행 중 Ctrl+C 시: (1) Codex 프로세스 kill, (2) worktree 정리, (3) REPL 프롬프트 복귀 필요. 현재 `gracefulShutdown()`이 전체 프로세스를 종료하므로 REPL 복귀 없이 프로세스 자체가 종료됨. Files: `cli/repl.ts`, `cli/executor.ts`
+- [x] **Cancel running task gracefully** — ~~Codex 실행 중 Ctrl+C 시 전체 프로세스 종료.~~ **완료** (v0.7.0): `cli/repl.ts`의 SIGINT 핸들러에서 `getActiveProcesses()`로 활성 자식 프로세스 감지 후 SIGTERM 전송. 프로세스 없으면 `/quit` 안내. REPL 프롬프트로 복귀.
 
 - [ ] **Session resume** — 세션 상태(태스크 히스토리, 대화 컨텍스트) 저장/복원. `mux --resume`으로 이전 세션 이어가기. 현재 `routing/history.ts`에 JSONL 로그가 있으나 세션 컨텍스트는 미저장.
 
@@ -73,9 +73,9 @@
 
 - [x] **REPL help text doesn't explain `/go`** — ~~`/go <task>` 설명 부족.~~ **완료**: `cli/repl.ts:220`에서 `/go <task>`를 "Auto-decompose, route, and execute without confirmation"으로 설명. `/chat <msg>`도 "General chat (skip routing)"으로 설명.
 
-- [ ] **Budget warnings use mixed Korean/English** — `budget/tracker.ts:68`의 경고 메시지가 영어로 통일됨 (예: `"Claude 90% used — recommend Codex-only mode"`). 그러나 `mux-setup.md` 커맨드 문서는 한국어, CLI 출력은 영어로 혼재. 전체적인 i18n 전략 필요. Files: `budget/tracker.ts`, `commands/*.md`
+- [x] **Empty input handling in REPL** — ~~반복 빈 입력 시 힌트 없음.~~ **완료** (v0.6.0): `cli/repl.ts`에 `emptyCount` 카운터 추가. 3회 연속 빈 입력 시 `"Type a task or /help for commands"` 힌트 표시 후 카운터 리셋.
 
-- [ ] **Empty input handling in REPL** — 빈 입력 시 프롬프트만 다시 표시(정상). 공백만 입력 시 trim 후 빈 문자열이 되어 조용히 처리됨. 반복 빈 입력 시 힌트 표시 고려. Files: `cli/repl.ts:128-130`
+- [ ] **Budget warnings use mixed Korean/English** — CLI 출력은 영어, 커맨드 문서는 한국어로 혼재. 전체적인 i18n 전략 필요. Files: `budget/tracker.ts`, `commands/*.md`
 
 - [ ] **Budget tracking accuracy** — `budget/tracker.ts:100-101`의 `Math.max(disk, memory)` 패턴이 여전히 존재. 여러 세션 동시 실행 시 정확도 문제 가능. JSONL 파일 기반 집계가 소스 오브 트루스이나 `sessionClaudeMessages`와의 `Math.max` 비교가 레이스 컨디션 유발 가능. Files: `budget/tracker.ts:100-101`
 
@@ -109,7 +109,7 @@
 
 ## Technical Debt
 
-- [ ] **Zero CLI test coverage** — `src/cli/` 전체 파일(12개)에 테스트 없음. 207개 테스트(6개 파일)가 핵심 모듈(routing, budget, codex)만 커버. 최소한 REPL 명령어 파싱, 라우팅 표시, config 명령어, setup 플로우 테스트 필요. Files: `src/cli/*.ts`
+- [ ] **Zero CLI test coverage** — `src/cli/` 전체 파일(12개)에 테스트 없음. 211개 테스트(7개 파일)가 핵심 모듈(routing, budget, codex)만 커버. 최소한 REPL 명령어 파싱, 라우팅 표시, config 명령어, setup 플로우 테스트 필요. Files: `src/cli/*.ts`
 
 - [ ] **No integration tests** — CLI 프로세스를 실제로 spawn하여 end-to-end 동작을 검증하는 테스트 없음 (Claude/Codex 모킹 포함).
 
@@ -121,17 +121,17 @@
 
 - [x] **`parseYamlValue` null handling** — ~~`null`/`~`가 빈 문자열로 강제 변환.~~ **완료**: 커스텀 파서 제거로 해결. `yaml` 패키지가 표준 YAML null 처리.
 
-- [ ] **Fire-and-forget async patterns** — 여전히 다수의 `.catch(() => {})` 패턴 존재. `budget/tracker.ts:29,43`, `routing/classifier.ts:426,464`, `codex/worktree.ts` 등. `debug()` 채널로 에러 로깅 최소한 필요. Files: `budget/tracker.ts`, `routing/classifier.ts`, `cli/index.ts:212`
+- [x] **Fire-and-forget async patterns** — ~~다수의 `.catch(() => {})` 패턴 존재.~~ **완료** (v0.6.0+): `budget/tracker.ts`는 `await`로 전환됨. `routing/classifier.ts:426,464`와 `cli/index.ts:225,228`은 `.catch(err => debug(...))` 패턴으로 개선됨.
 
 - [x] **Type assertion abuse** — ~~`(signals as unknown as Record<string, unknown>)[kw.signal] = true` 타입 안전성 위반.~~ **완료**: `routing/classifier.ts:119-123`에 `setSignal()` 헬퍼 함수 도입. `typeof signals[key] === 'boolean'` 런타임 체크 후 안전하게 설정.
 
 - [x] **`_options` / `_config` unused parameters** — ~~미사용 파라미터 존재.~~ **완료**: `run.ts`와 `go.ts`에서 `options` 파라미터가 실제로 사용됨 (예: `options.dryRun`, `options.verbose`, `options.autoApply`).
 
-- [ ] **README documents features that don't exist** — `batch_mode`, `conservation`, `degradation`, `hybrid` engine, `LLM-assisted routing`, `pipeline_mode`가 README와 커맨드 문서(`mux-config.md`, `mux-setup.md`)에 상세 기술되어 있으나 코드에 미구현. "Planned" 또는 "Coming soon" 표기 필요. Files: `README.md`, `commands/mux-config.md`, `commands/mux-setup.md`
+- [x] **README documents features that don't exist** — ~~미구현 기능이 문서에 기술.~~ **완료**: README에서 `hybrid`, `batch_mode`, `conservation`, `LLM-assisted routing` 등에 `(planned)` 표기 추가됨. 설정 파일 예시도 주석으로 planned 표기.
 
 - [ ] **No CI for CLI smoke tests** — CI가 `vitest run`으로 단위 테스트만 실행. CLI 바이너리 시작/인자파싱/정상종료 검증 없음.
 
-- [ ] **MCP 서버 `z` import without zod dependency** — `server.ts:8`에서 `import { z } from 'zod'`하지만 `package.json`에 `zod`가 직접 dependency로 없음. `@modelcontextprotocol/sdk`의 transitive dependency에 의존 중. 명시적 추가 필요. Files: `src/server.ts:8`, `package.json`
+- [x] **MCP 서버 `z` import without zod dependency** — ~~`package.json`에 `zod`가 직접 dependency로 없음.~~ **완료** (v0.6.0): `package.json`에 `"zod": "^4.3.6"` 명시적 추가.
 
 ---
 

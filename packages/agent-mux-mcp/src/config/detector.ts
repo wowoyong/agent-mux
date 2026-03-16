@@ -10,6 +10,7 @@ import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import type { ClaudePlan, CodexPlan, CodexMode } from '../types.js';
 import type { DetectedPlugin } from '../types.js';
+import { debug } from '../cli/debug.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -76,8 +77,8 @@ export async function detectCodexCli(): Promise<{
     try {
       const { stdout: versionOut } = await execFileAsync('codex', ['--version'], { timeout: 5000 });
       version = versionOut.trim();
-    } catch {
-      // Version detection failed, but CLI exists
+    } catch (err) {
+      debug('Codex version detection failed:', err);
     }
 
     return {
@@ -85,7 +86,8 @@ export async function detectCodexCli(): Promise<{
       version,
       path: codexPath,
     };
-  } catch {
+  } catch (err) {
+    debug('Codex CLI detection failed:', err);
     return { installed: false };
   }
 }

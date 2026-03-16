@@ -13,6 +13,7 @@ import { createWorktree, cleanupWorktree } from './worktree.js';
 import { validateFileScope } from './validator.js';
 import { registerProcess, unregisterProcess } from '../cli/process-tracker.js';
 import { CODEX_TIMEOUT_MEDIUM, STALL_THRESHOLD, STALL_CHECK_INTERVAL } from '../constants.js';
+import { debug } from '../cli/debug.js';
 
 const execAsync = promisify(execFile);
 
@@ -23,6 +24,8 @@ export interface SpawnerOptions {
   codexPath?: string;
   /** Stall detection threshold in ms (default: 90000) */
   stallThresholdMs?: number;
+  /** Callback for progress updates based on JSONL events */
+  onProgress?: (event: string) => void;
 }
 
 // ─── Task ID Generator ──────────────────────────────────────────────
@@ -42,7 +45,8 @@ async function getModifiedFiles(worktreePath: string): Promise<string[]> {
       .trim()
       .split('\n')
       .filter((f) => f.length > 0);
-  } catch {
+  } catch (err) {
+    debug('Failed to get modified files:', err);
     return [];
   }
 }
@@ -90,7 +94,18 @@ export async function spawn(
   proc.stdout?.on('data', (chunk: Buffer) => {
     const text = chunk.toString();
     stdout += text;
-    parser.feed(text);
+    const newEvents = parser.feed(text);
+    for (const evt of newEvents) {
+      if (options?.onProgress) {
+        if (evt.type === 'item.started' && evt.item?.type === 'command_execution') {
+          options.onProgress('Running command...');
+        } else if (evt.type === 'item.started' && evt.item?.type === 'agent_message') {
+          options.onProgress('Writing code...');
+        } else if (evt.type === 'item.completed') {
+          options.onProgress('Processing...');
+        }
+      }
+    }
   });
 
   proc.stderr?.on('data', (chunk: Buffer) => {

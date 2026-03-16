@@ -9,13 +9,17 @@ import { loadConfig } from '../config/loader.js';
 import { getBudgetStatus } from '../budget/tracker.js';
 import { TIER_LIMITS } from '../config/tiers.js';
 import { box, progressBar } from './ui.js';
+import { getActiveProcesses } from './process-tracker.js';
+import { loadSession, saveSession, clearSession } from './session.js';
+import type { SessionState } from './session.js';
+import { debug } from './debug.js';
 
 function getVersion(): string {
   try {
     // __dirname is available in CJS output; go up from dist/src/cli/ to package root
     const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'package.json'), 'utf-8'));
     return pkg.version;
-  } catch { return 'unknown'; }
+  } catch (err) { debug('Failed to read package.json version:', err); return 'unknown'; }
 }
 
 export async function startRepl(): Promise<void> {
@@ -24,7 +28,7 @@ export async function startRepl(): Promise<void> {
   // Use terminal: false when piped to avoid issues with non-interactive input.
   // Tab completion for slash commands
   function completer(line: string): [string[], string] {
-    const commands = ['/status', '/go', '/config', '/help', '/quit', '/chat', '/history'];
+    const commands = ['/status', '/go', '/config', '/help', '/quit', '/chat', '/history', '/why'];
     if (line.startsWith('/')) {
       const hits = commands.filter(c => c.startsWith(line));
       return [hits.length ? hits : commands, line];
@@ -42,9 +46,17 @@ export async function startRepl(): Promise<void> {
     completer,
   });
 
-  // SIGINT handler: cancel running task gracefully without exiting
+  // SIGINT handler: kill active child processes and return to prompt
   rl.on('SIGINT', () => {
-    console.log(chalk.yellow('\n  Task cancelled.'));
+    const procs = getActiveProcesses();
+    if (procs.size > 0) {
+      for (const proc of procs) {
+        proc.kill('SIGTERM');
+      }
+      console.log(chalk.yellow(`\n  Cancelled ${procs.size} running process(es).`));
+    } else {
+      console.log(chalk.yellow('\n  (Use /quit to exit)'));
+    }
     rl.prompt();
   });
 
@@ -58,6 +70,7 @@ export async function startRepl(): Promise<void> {
   async function processLine(input: string): Promise<void> {
     try {
       if (input === '/quit' || input === '/exit' || input === '/q') {
+        await saveSession(sessionState).catch(() => {});
         console.log(chalk.gray('\n  Bye!\n'));
         rl.close();
         process.exit(0);
@@ -100,6 +113,28 @@ export async function startRepl(): Promise<void> {
         if (task) {
           await goTask(task, {});
         }
+      } else if (input === '/why') {
+        const { getRoutingHistory } = await import('../routing/history.js');
+        const { box: whyBox } = await import('./ui.js');
+        const history = await getRoutingHistory(1);
+        if (history.length === 0) {
+          console.log(chalk.gray('  No routing decisions yet.'));
+        } else {
+          const last = history[0];
+          const signals = Object.entries(last.signals)
+            .filter(([_, v]) => v === true)
+            .map(([k]) => chalk.white(k));
+          const lines = [
+            `Target:     ${last.decision.target === 'claude' ? chalk.blue('Claude') : chalk.green('Codex')}`,
+            `Confidence: ${Math.round(last.decision.confidence * 100)}%`,
+            `Phase:      ${last.decision.phase}`,
+            `Reason:     ${last.decision.reason}`,
+            '',
+            'Active signals:',
+            ...signals.map(s => `  + ${s}`),
+          ];
+          console.log('\n' + whyBox('Last Routing Decision', lines));
+        }
       } else if (input.startsWith('/')) {
         console.log(
           chalk.yellow(`  Unknown command: ${input}. Type /help for available commands.`)
@@ -113,15 +148,18 @@ export async function startRepl(): Promise<void> {
       console.error(chalk.red(`  Error: ${message}`));
     }
 
-    // Show updated budget after each task execution
+    // Show updated budget after each task execution and save session
     if (!input.startsWith('/')) {
+      sessionState.taskCount++;
+      sessionState.lastActive = Date.now();
+      await saveSession(sessionState).catch(() => {});
       try {
         const updatedBudget = await getBudgetStatus();
         const cfg = await loadConfig();
         const lim = TIER_LIMITS[cfg.tier];
         printBudgetLine(updatedBudget, lim);
-      } catch {
-        // Budget display is best-effort
+      } catch (err) {
+        debug('Budget display failed:', err);
       }
     }
   }
@@ -174,11 +212,29 @@ export async function startRepl(): Promise<void> {
   const budget = await getBudgetStatus();
   const limits = TIER_LIMITS[config.tier];
 
+  // Session resume
+  const previousSession = await loadSession();
+  let sessionState: SessionState;
+  if (previousSession && Date.now() - previousSession.lastActive < 3600000) {
+    sessionState = {
+      ...previousSession,
+      lastActive: Date.now(),
+    };
+    console.log(chalk.gray(`\n  Resuming session (${previousSession.taskCount} tasks from previous session)`));
+  } else {
+    sessionState = {
+      startedAt: Date.now(),
+      lastActive: Date.now(),
+      taskCount: 0,
+      cwd: process.cwd(),
+    };
+  }
+
   // Header
   console.log();
   console.log(printHeader(config, budget, limits));
   console.log();
-  console.log(chalk.gray('  Commands: /status  /go  /chat  /history  /config  /help  /quit'));
+  console.log(chalk.gray('  Commands: /status  /go  /chat  /history  /why  /config  /help  /quit'));
   console.log();
 
   // Use rl.prompt() instead of manual write to work correctly with terminal: true
@@ -233,6 +289,7 @@ function printHelp(): void {
     `${chalk.white('/go <task>')}       Auto-decompose, route, and execute without confirmation`,
     `${chalk.white('/chat <msg>')}      General chat (skip routing)`,
     `${chalk.white('/history')}         Show recent routing decisions`,
+    `${chalk.white('/why')}             Explain last routing decision`,
     `${chalk.white('/status')}          Show budget dashboard`,
     `${chalk.white('/config')}          Show current configuration`,
     `${chalk.white('/help')}            Show this help`,

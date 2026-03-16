@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { UsageRecord } from '../types.js';
+import { debug } from '../cli/debug.js';
 
 const USAGE_DIR = join(homedir(), '.agent-mux', 'usage');
 const USAGE_FILE = join(USAGE_DIR, 'usage.jsonl');
@@ -26,10 +27,11 @@ export async function loadUsageRecords(sinceMs?: number): Promise<UsageRecord[]>
         const record = JSON.parse(line) as UsageRecord;
         if (sinceMs && record.timestamp < sinceMs) continue;
         records.push(record);
-      } catch { /* skip malformed lines */ }
+      } catch (err) { debug('Skipping malformed usage line:', err); }
     }
     return records;
-  } catch {
+  } catch (err) {
+    debug('Failed to load usage records:', err);
     return []; // file doesn't exist yet
   }
 }

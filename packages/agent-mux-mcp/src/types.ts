@@ -242,6 +242,11 @@ export interface MuxConfig {
   budget: {
     warnings: number[];
   };
+  /** Conservation settings */
+  conservation?: {
+    /** When true, prefer codex on uncertain routing decisions (saves Claude budget) */
+    codexFirstOnUncertain?: boolean;
+  };
   /** Optional deny-list patterns */
   denyList?: string[];
 }

@@ -12,12 +12,13 @@ import { spawnCodex } from './tools/spawn-codex.js';
 import { checkBudget } from './tools/check-budget.js';
 import { getStatus } from './tools/get-status.js';
 import { handleDecomposeTask } from './tools/decompose-task.js';
+import { debug } from './cli/debug.js';
 
 function getVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8'));
     return pkg.version;
-  } catch { return 'unknown'; }
+  } catch (err) { debug('Failed to read package.json version:', err); return 'unknown'; }
 }
 
 /**

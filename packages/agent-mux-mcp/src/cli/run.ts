@@ -9,6 +9,7 @@ import { TIER_LIMITS } from '../config/tiers.js';
 import { spawnClaude } from './claude-spawner.js';
 import { executeOnCodex, executeOnClaude, applyWorktreeChanges, rollbackWorktree } from './executor.js';
 import { lightBox, progressBar, indent, getTerminalWidth } from './ui.js';
+import { debug } from './debug.js';
 
 const execAsync = promisify(execFile);
 
@@ -49,7 +50,8 @@ export async function runTask(taskDescription: string, options: RunOptions): Pro
       escalated: false,
     };
   } else {
-    decision = routeTask(signals, config.tier, claudePct, codexPct, taskDescription);
+    const conservationMode = config.conservation?.codexFirstOnUncertain ?? false;
+    decision = routeTask(signals, config.tier, claudePct, codexPct, taskDescription, { conservationMode });
   }
 
   const confPct = Math.round(decision.confidence * 100);
@@ -93,7 +95,9 @@ export async function runTask(taskDescription: string, options: RunOptions): Pro
   if (decision.target === 'codex') {
     await executeCodex(taskDescription, options);
   } else {
-    await executeOnClaude(taskDescription, { stream: true });
+    // Choose model based on complexity: use sonnet for non-high complexity tasks
+    const model = signals.estimatedComplexity === 'high' ? undefined : 'sonnet';
+    await executeOnClaude(taskDescription, { stream: true, model });
   }
 
   // Show budget after execution
@@ -224,13 +228,25 @@ async function getDiff(worktreePath: string): Promise<string> {
   try {
     const { stdout } = await execAsync('git', ['diff', 'HEAD'], { cwd: worktreePath });
     return stdout;
-  } catch {
+  } catch (err) {
+    debug('getDiff failed:', err);
     return '(unable to generate diff)';
   }
 }
 
-/** Ask user a question via stdin/stdout */
+/** Shared readline instance to avoid creating new interfaces each time */
+let _sharedRl: ReturnType<typeof createInterface> | null = null;
+
+function getOrCreateReadline(): ReturnType<typeof createInterface> {
+  if (!_sharedRl) {
+    _sharedRl = createInterface({ input: process.stdin, output: process.stdout });
+    _sharedRl.on('close', () => { _sharedRl = null; });
+  }
+  return _sharedRl;
+}
+
+/** Ask user a question via stdin/stdout (reuses shared readline) */
 function askUser(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(r => rl.question(question, (a) => { rl.close(); r(a); }));
+  const rl = getOrCreateReadline();
+  return new Promise(r => rl.question(question, (a) => r(a)));
 }

@@ -34,6 +34,11 @@ export async function executeOnCodex(
       prompt: task,
       complexity: 'medium',
       timeout: CODEX_TIMEOUT_MEDIUM,
+    }, {
+      onProgress: (event) => {
+        const sec = Math.round((Date.now() - start) / 1000);
+        spinner.text = chalk.green(`${event} (${sec}s)`);
+      },
     });
   } finally {
     clearInterval(timer);
@@ -57,11 +62,11 @@ export async function executeOnCodex(
  */
 export async function executeOnClaude(
   task: string,
-  options?: ExecutionOptions
+  options?: ExecutionOptions & { model?: string }
 ): Promise<{ success: boolean; error?: string }> {
   console.log(chalk.blue('\n  Claude:'));
   try {
-    const result = await spawnClaude(task, { stream: options?.stream !== false });
+    const result = await spawnClaude(task, { stream: options?.stream !== false, model: options?.model });
     if (!result.success && result.error) {
       console.error(chalk.red('\n  Error: ' + result.error));
     }

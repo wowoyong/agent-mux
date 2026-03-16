@@ -93,10 +93,14 @@ export async function getBudgetStatus(): Promise<BudgetStatus & { warnings: Budg
   const tier = config.tier;
   const limits = TIER_LIMITS[tier];
 
-  // Get usage from the current 5hr window (disk) + session counters (memory)
-  // Use Math.max to avoid race condition where disk writes haven't flushed yet
+  // Get usage from the current 5hr window (disk) as source of truth.
+  // Disk records are authoritative; session counters are only used as a floor
+  // for the current session (in case append hasn't flushed yet for very recent writes).
+  // This avoids double-counting across concurrent sessions.
   const fiveHoursMs = 5 * 60 * 60 * 1000;
   const windowUsage = await getUsageSummary(fiveHoursMs);
+  // Disk is source of truth. Only fall back to session counter if disk shows less
+  // than our current session's count (i.e., writes haven't flushed yet).
   const claudeUsed = Math.max(windowUsage.claude, sessionClaudeMessages);
   const codexUsed = Math.max(windowUsage.codex, sessionCodexTasks);
 

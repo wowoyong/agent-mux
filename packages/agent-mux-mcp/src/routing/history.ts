@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { RoutingLogEntry, LearnedOverride, TaskSignals, RouteTarget } from '../types.js';
+import { debug } from '../cli/debug.js';
 
 const LOG_DIR = join(homedir(), '.agent-mux', 'routing');
 const LOG_FILE = join(LOG_DIR, 'routing-history.jsonl');
@@ -27,10 +28,11 @@ export async function getRoutingHistory(limit = 50): Promise<RoutingLogEntry[]> 
     const entries: RoutingLogEntry[] = [];
     for (const line of content.split('\n')) {
       if (!line.trim()) continue;
-      try { entries.push(JSON.parse(line)); } catch {}
+      try { entries.push(JSON.parse(line)); } catch (err) { debug('Skipping malformed routing history line:', err); }
     }
     return entries.slice(-limit);
-  } catch {
+  } catch (err) {
+    debug('Failed to load routing history:', err);
     return [];
   }
 }
@@ -81,7 +83,8 @@ export async function loadOverrides(): Promise<LearnedOverride[]> {
   try {
     const content = await fs.readFile(OVERRIDES_FILE, 'utf-8');
     return JSON.parse(content);
-  } catch {
+  } catch (err) {
+    debug('Failed to load overrides:', err);
     return [];
   }
 }

@@ -56,8 +56,8 @@ export async function loadConfig(projectRoot?: string): Promise<MuxConfig> {
         const content = await readFile(configPath, 'utf-8');
         const parsed = parseYaml(content);
         return mergeWithDefaults(parsed);
-      } catch {
-        debug(`Failed to load config from: ${configPath}`);
+      } catch (err) {
+        debug(`Failed to load config from: ${configPath}`, err);
         // Fall through to next path
       }
     }
@@ -190,7 +190,15 @@ function mergeWithDefaults(parsed: Record<string, unknown>): MuxConfig {
       },
     },
     budget: { warnings },
+    conservation: parseConservation(parsed['conservation'] as Record<string, unknown> | undefined),
     denyList: (parsed['denyList'] as string[]) ?? defaults.denyList,
+  };
+}
+
+function parseConservation(raw: Record<string, unknown> | undefined): MuxConfig['conservation'] {
+  if (!raw) return undefined;
+  return {
+    codexFirstOnUncertain: raw['codex_first_on_uncertain'] === true || raw['codexFirstOnUncertain'] === true,
   };
 }
 
@@ -243,6 +251,14 @@ function configToYaml(config: MuxConfig): string {
     `budget:`,
     `  warnings: [${config.budget.warnings.join(', ')}]`,
   ];
+
+  if (config.conservation) {
+    lines.push('');
+    lines.push('conservation:');
+    if (config.conservation.codexFirstOnUncertain !== undefined) {
+      lines.push(`  codex_first_on_uncertain: ${config.conservation.codexFirstOnUncertain}`);
+    }
+  }
 
   if (config.denyList && config.denyList.length > 0) {
     lines.push('');

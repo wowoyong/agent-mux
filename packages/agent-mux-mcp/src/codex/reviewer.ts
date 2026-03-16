@@ -12,6 +12,7 @@ import { promisify } from 'node:util';
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ReviewResult, VerifyStrategy } from '../types.js';
+import { debug } from '../cli/debug.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -90,14 +91,16 @@ async function getDiffSummary(worktreePath: string): Promise<string> {
       cwd: worktreePath,
     });
     return stdout;
-  } catch {
+  } catch (err) {
+    debug('getDiffSummary HEAD~1..HEAD failed:', err);
     // May fail if no commits yet
     try {
       const { stdout } = await execFileAsync('git', ['diff', '--stat'], {
         cwd: worktreePath,
       });
       return stdout;
-    } catch {
+    } catch (err2) {
+      debug('getDiffSummary fallback failed:', err2);
       return '(unable to generate diff summary)';
     }
   }
@@ -143,7 +146,8 @@ async function runLint(
       '--if-present',
     ]);
     return { passed: cmdResult.exitCode === 0, output: cmdResult.stdout + cmdResult.stderr };
-  } catch {
+  } catch (err) {
+    debug('runLint failed:', err);
     return { passed: true, output: 'No lint command found' };
   }
 }
@@ -173,7 +177,8 @@ async function fileExists(filePath: string): Promise<boolean> {
   try {
     await access(filePath);
     return true;
-  } catch {
+  } catch (err) {
+    debug('fileExists check failed:', err);
     return false;
   }
 }

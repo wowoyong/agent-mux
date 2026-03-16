@@ -94,7 +94,8 @@ export async function goTask(taskDescription: string, options: GoOptions): Promi
     const signals = analyzeTask(taskDescription);
     const claudePct = budget.claude.usagePercent / 100;
     const codexPct = budget.codex.usagePercent / 100;
-    const decision = routeTask(signals, config.tier, claudePct, codexPct, taskDescription);
+    const conservationMode = config.conservation?.codexFirstOnUncertain ?? false;
+    const decision = routeTask(signals, config.tier, claudePct, codexPct, taskDescription, { conservationMode });
 
     const targetColor = decision.target === 'claude' ? chalk.blue : chalk.green;
     const targetName = decision.target === 'claude' ? 'Claude' : 'Codex';

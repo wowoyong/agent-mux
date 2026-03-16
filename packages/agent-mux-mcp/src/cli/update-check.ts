@@ -1,4 +1,5 @@
 import https from 'node:https';
+import { debug } from './debug.js';
 
 export async function checkForUpdates(currentVersion: string): Promise<void> {
   try {
@@ -7,7 +8,7 @@ export async function checkForUpdates(currentVersion: string): Promise<void> {
       console.log(`  Update available: ${currentVersion} → ${latest}`);
       console.log(`  Run: npm update -g agent-mux-mcp\n`);
     }
-  } catch {} // silent fail
+  } catch (err) { debug('Update check failed:', err); }
 }
 
 function getLatestVersion(pkg: string): Promise<string | null> {
@@ -16,7 +17,7 @@ function getLatestVersion(pkg: string): Promise<string | null> {
       let data = '';
       res.on('data', (c: Buffer) => data += c);
       res.on('end', () => {
-        try { resolve(JSON.parse(data).version); } catch { resolve(null); }
+        try { resolve(JSON.parse(data).version); } catch (err) { debug('Failed to parse npm registry response:', err); resolve(null); }
       });
     });
     req.on('error', () => resolve(null));

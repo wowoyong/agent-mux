@@ -277,7 +277,8 @@ export function routeTask(
   tier: TierName = 'standard',
   claudeBudgetPct: number = 1.0,
   codexBudgetPct: number = 1.0,
-  taskDescription: string = ''
+  taskDescription: string = '',
+  options?: { conservationMode?: boolean }
 ): RouteDecision {
   // Phase 1: Check hard rules in priority order
   const sortedRules = [...HARD_RULES].sort((a, b) => a.priority - b.priority);
@@ -356,7 +357,8 @@ export function routeTask(
 
   // Tiebreaker for ambiguous cases (low confidence)
   if (confidence < CONFIDENCE_THRESHOLD) {
-    target = tier === 'budget' ? 'codex' : 'claude';
+    // Conservation mode: always prefer codex on uncertain (saves Claude budget)
+    target = (options?.conservationMode || tier === 'budget') ? 'codex' : 'claude';
     const decision: RouteDecision = {
       target,
       confidence,

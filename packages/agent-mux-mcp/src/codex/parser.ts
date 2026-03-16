@@ -5,6 +5,7 @@
 
 import type { JsonlEventType, JsonlEvent } from '../types.js';
 import { STALL_THRESHOLD } from '../constants.js';
+import { debug } from '../cli/debug.js';
 
 // Re-export types for convenience
 export type { JsonlEventType, JsonlEvent };
@@ -30,7 +31,8 @@ export function parseJsonlLine(line: string): JsonlEvent | null {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(trimmed) as Record<string, unknown>;
-  } catch {
+  } catch (err) {
+    debug('Failed to parse JSONL line:', err);
     return null;
   }
 

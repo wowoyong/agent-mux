@@ -381,6 +381,40 @@ program
     console.log(chalk.cyan(`\n  Batch complete: ${completed} succeeded, ${failed} failed.\n`));
   });
 
+program
+  .command('tui')
+  .description('Interactive terminal dashboard')
+  .action(async () => {
+    const { startTui } = await import('./tui.js');
+    await startTui();
+  });
+
+program
+  .command('team')
+  .description('Show team budget usage')
+  .option('--window <hours>', 'Time window in hours', '24')
+  .action(async (options: { window: string }) => {
+    const { loadConfig } = await import('../config/loader.js');
+    const config = await loadConfig();
+
+    if (!config.team?.sharedDir) {
+      console.log(chalk.yellow('\n  Team sharing not configured.'));
+      console.log(chalk.gray('  Add to .agent-mux/config.yaml:'));
+      console.log(chalk.gray('    team:'));
+      console.log(chalk.gray('      sharedDir: /path/to/shared/team-budget'));
+      console.log(chalk.gray('      userId: your-name\n'));
+      return;
+    }
+
+    const { getTeamUsageSummary, formatTeamUsage } = await import('../budget/team-sharing.js');
+    const windowHrs = parseInt(options.window) || 24;
+    const summary = await getTeamUsageSummary(config.team, windowHrs * 60 * 60 * 1000);
+    const lines = formatTeamUsage(summary);
+
+    const { box: drawBox } = await import('./ui.js');
+    console.log('\n' + drawBox(`Team Usage (${windowHrs}h)`, lines) + '\n');
+  });
+
 // Cleanup stale worktrees silently on startup (fire-and-forget)
 cleanupStaleWorktrees().catch(err => debug('Silent error cleaning stale worktrees:', err));
 

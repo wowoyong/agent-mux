@@ -191,6 +191,7 @@ function mergeWithDefaults(parsed: Record<string, unknown>): MuxConfig {
     },
     budget: { warnings },
     conservation: parseConservation(parsed['conservation'] as Record<string, unknown> | undefined),
+    team: parseTeam(parsed['team'] as Record<string, unknown> | undefined),
     denyList: (parsed['denyList'] as string[]) ?? defaults.denyList,
   };
 }
@@ -199,6 +200,14 @@ function parseConservation(raw: Record<string, unknown> | undefined): MuxConfig[
   if (!raw) return undefined;
   return {
     codexFirstOnUncertain: raw['codex_first_on_uncertain'] === true || raw['codexFirstOnUncertain'] === true,
+  };
+}
+
+function parseTeam(raw: Record<string, unknown> | undefined): MuxConfig['team'] {
+  if (!raw || typeof raw['sharedDir'] !== 'string') return undefined;
+  return {
+    sharedDir: raw['sharedDir'] as string,
+    userId: typeof raw['userId'] === 'string' ? raw['userId'] : undefined,
   };
 }
 

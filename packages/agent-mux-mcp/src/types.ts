@@ -247,6 +247,13 @@ export interface MuxConfig {
     /** When true, prefer codex on uncertain routing decisions (saves Claude budget) */
     codexFirstOnUncertain?: boolean;
   };
+  /** Team budget sharing settings */
+  team?: {
+    /** Path to shared directory for team usage files */
+    sharedDir: string;
+    /** User identifier (defaults to OS username) */
+    userId?: string;
+  };
   /** Optional deny-list patterns */
   denyList?: string[];
 }

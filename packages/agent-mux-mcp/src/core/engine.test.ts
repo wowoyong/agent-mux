@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createEngine, resetEngine } from './engine.js';
+import { createEngine, resetEngine, waitForConfirm } from './engine.js';
+import type { MuxEngine } from './engine.js';
 
 // ─── Mocks ───────────────────────────────────────────────────────────
 
@@ -152,8 +153,8 @@ describe('createEngine', () => {
     resetEngine();
   });
 
-  it('creates a MuxEngine instance', () => {
-    const engine = createEngine();
+  it('creates a MuxEngine instance', async () => {
+    const engine = await createEngine();
     expect(engine).toBeDefined();
     expect(typeof engine.analyzeAndRoute).toBe('function');
     expect(typeof engine.execute).toBe('function');
@@ -169,15 +170,15 @@ describe('createEngine', () => {
     expect(typeof engine.executeDecomposed).toBe('function');
   });
 
-  it('returns a singleton on repeated calls', () => {
-    const engine1 = createEngine();
-    const engine2 = createEngine();
+  it('returns a singleton on repeated calls', async () => {
+    const engine1 = await createEngine();
+    const engine2 = await createEngine();
     expect(engine1).toBe(engine2);
   });
 
-  it('creates a new instance when configOverride is passed', () => {
-    const engine1 = createEngine();
-    const engine2 = createEngine({ tier: 'premium' });
+  it('creates a new instance when configOverride is passed', async () => {
+    const engine1 = await createEngine();
+    const engine2 = await createEngine({ tier: 'premium' });
     // Both are valid engines; engine2 is a new instance due to override
     expect(engine2).toBeDefined();
   });
@@ -188,7 +189,7 @@ describe('MuxEngine.getBudget', () => {
   afterEach(() => resetEngine());
 
   it('returns BudgetStatus without warnings field', async () => {
-    const engine = createEngine();
+    const engine = await createEngine();
     const budget = await engine.getBudget();
     expect(budget).toBeDefined();
     expect(budget.claude).toBeDefined();
@@ -204,14 +205,14 @@ describe('MuxEngine.getConfig', () => {
   afterEach(() => resetEngine());
 
   it('returns loaded config', async () => {
-    const engine = createEngine();
+    const engine = await createEngine();
     const config = await engine.getConfig();
     expect(config.tier).toBe('standard');
     expect(config.routing.engine).toBe('local');
   });
 
   it('merges configOverride into loaded config', async () => {
-    const engine = createEngine({ tier: 'premium' });
+    const engine = await createEngine({ tier: 'premium' });
     const config = await engine.getConfig();
     expect(config.tier).toBe('premium');
   });
@@ -222,7 +223,7 @@ describe('MuxEngine.getHistory', () => {
   afterEach(() => resetEngine());
 
   it('returns routing history', async () => {
-    const engine = createEngine();
+    const engine = await createEngine();
     const history = await engine.getHistory();
     expect(Array.isArray(history)).toBe(true);
     expect(history.length).toBe(2);
@@ -230,7 +231,7 @@ describe('MuxEngine.getHistory', () => {
   });
 
   it('respects limit parameter', async () => {
-    const engine = createEngine();
+    const engine = await createEngine();
     const history = await engine.getHistory(1);
     expect(history.length).toBe(1);
   });
@@ -240,15 +241,15 @@ describe('MuxEngine.isCodingTask', () => {
   beforeEach(() => resetEngine());
   afterEach(() => resetEngine());
 
-  it('returns true for coding tasks', () => {
-    const engine = createEngine();
+  it('returns true for coding tasks', async () => {
+    const engine = await createEngine();
     expect(engine.isCodingTask('fix the bug in auth module')).toBe(true);
     expect(engine.isCodingTask('write tests for the parser')).toBe(true);
     expect(engine.isCodingTask('implement the API endpoint')).toBe(true);
   });
 
-  it('returns false for non-coding tasks', () => {
-    const engine = createEngine();
+  it('returns false for non-coding tasks', async () => {
+    const engine = await createEngine();
     expect(engine.isCodingTask('what is the weather today')).toBe(false);
   });
 });
@@ -258,7 +259,7 @@ describe('MuxEngine.analyzeAndRoute', () => {
   afterEach(() => resetEngine());
 
   it('returns a route decision', async () => {
-    const engine = createEngine();
+    const engine = await createEngine();
     const decision = await engine.analyzeAndRoute('fix this bug');
     expect(decision).toBeDefined();
     expect(['claude', 'codex']).toContain(decision.target);
@@ -267,7 +268,7 @@ describe('MuxEngine.analyzeAndRoute', () => {
   });
 
   it('uses manual route override when opts.route is set', async () => {
-    const engine = createEngine();
+    const engine = await createEngine();
     const decision = await engine.analyzeAndRoute('fix this bug', { route: 'claude' });
     expect(decision.target).toBe('claude');
     expect(decision.confidence).toBe(1.0);
@@ -275,7 +276,7 @@ describe('MuxEngine.analyzeAndRoute', () => {
   });
 
   it('uses manual codex override', async () => {
-    const engine = createEngine();
+    const engine = await createEngine();
     const decision = await engine.analyzeAndRoute('design architecture', { route: 'codex' });
     expect(decision.target).toBe('codex');
     expect(decision.matchedRule).toBe('manual-override');
@@ -287,33 +288,37 @@ describe('MuxEngine.execute', () => {
   afterEach(() => resetEngine());
 
   it('yields routing event first', async () => {
-    const engine = createEngine();
+    const engine = await createEngine();
+    const decision = await engine.analyzeAndRoute('write tests');
     const events = [];
-    for await (const ev of engine.execute('write tests')) {
+    for await (const ev of engine.execute('write tests', decision)) {
       events.push(ev);
     }
     expect(events[0].type).toBe('routing');
   });
 
-  it('yields done event in dry-run mode', async () => {
-    const engine = createEngine();
-    const events = [];
-    for await (const ev of engine.execute('write tests', { dryRun: true })) {
-      events.push(ev);
-    }
-    const doneEv = events.find(e => e.type === 'done');
-    expect(doneEv).toBeDefined();
-    expect((doneEv as any).summary).toContain('dry-run');
-  });
-
   it('completes the stream (has done event)', async () => {
-    const engine = createEngine();
+    const engine = await createEngine();
+    const decision = await engine.analyzeAndRoute('write tests');
     const events = [];
-    for await (const ev of engine.execute('write tests')) {
+    for await (const ev of engine.execute('write tests', decision)) {
       events.push(ev);
     }
     const hasTerminal = events.some(e => e.type === 'done' || e.type === 'error');
     expect(hasTerminal).toBe(true);
+  });
+
+  it('routes to claude when decision.target is claude', async () => {
+    const engine = await createEngine();
+    const decision = await engine.analyzeAndRoute('design architecture', { route: 'claude' });
+    const events = [];
+    for await (const ev of engine.execute('design architecture', decision)) {
+      events.push(ev);
+    }
+    expect(events[0].type).toBe('routing');
+    expect((events[0] as any).decision.target).toBe('claude');
+    const streamEv = events.find(e => e.type === 'stream');
+    expect(streamEv).toBeDefined();
   });
 });
 
@@ -321,16 +326,16 @@ describe('MuxEngine.decompose', () => {
   beforeEach(() => resetEngine());
   afterEach(() => resetEngine());
 
-  it('decomposes a complex task', () => {
-    const engine = createEngine();
-    const result = engine.decompose('design system and write tests');
+  it('decomposes a complex task', async () => {
+    const engine = await createEngine();
+    const result = await engine.decompose('design system and write tests');
     expect(result.shouldDecompose).toBe(true);
     expect(result.subtasks.length).toBe(2);
   });
 
-  it('returns no decomposition for simple task', () => {
-    const engine = createEngine();
-    const result = engine.decompose('fix the login bug');
+  it('returns no decomposition for simple task', async () => {
+    const engine = await createEngine();
+    const result = await engine.decompose('fix the login bug');
     expect(result.shouldDecompose).toBe(false);
     expect(result.subtasks.length).toBe(0);
   });
@@ -340,8 +345,8 @@ describe('MuxEngine.getVersion', () => {
   beforeEach(() => resetEngine());
   afterEach(() => resetEngine());
 
-  it('returns a string version', () => {
-    const engine = createEngine();
+  it('returns a string version', async () => {
+    const engine = await createEngine();
     const version = engine.getVersion();
     expect(typeof version).toBe('string');
     // Either a valid semver or 'unknown' (depending on environment)
@@ -353,9 +358,27 @@ describe('MuxEngine.respondToConfirm', () => {
   beforeEach(() => resetEngine());
   afterEach(() => resetEngine());
 
-  it('does not throw for unknown id', () => {
-    const engine = createEngine();
+  it('does not throw for unknown id', async () => {
+    const engine = await createEngine();
     expect(() => engine.respondToConfirm('nonexistent-id', 'yes')).not.toThrow();
+  });
+
+  it('resolves the back-channel promise when id matches', async () => {
+    const engine = await createEngine();
+    // Register a pending confirm via the module-level waitForConfirm
+    const confirmPromise = waitForConfirm('test-confirm-id');
+    // Resolve it via respondToConfirm
+    engine.respondToConfirm('test-confirm-id', 'yes');
+    const result = await confirmPromise;
+    expect(result).toBe('yes');
+  });
+
+  it('resolves with the exact choice passed', async () => {
+    const engine = await createEngine();
+    const confirmPromise = waitForConfirm('another-id');
+    engine.respondToConfirm('another-id', 'no');
+    const result = await confirmPromise;
+    expect(result).toBe('no');
   });
 });
 
@@ -363,8 +386,19 @@ describe('MuxEngine.cancel', () => {
   beforeEach(() => resetEngine());
   afterEach(() => resetEngine());
 
-  it('does not throw when no processes are active', () => {
-    const engine = createEngine();
+  it('does not throw when no processes are active', async () => {
+    const engine = await createEngine();
     expect(() => engine.cancel()).not.toThrow();
+  });
+
+  it('calls kill on each active process', async () => {
+    const mockKill = vi.fn();
+    const { getActiveProcesses } = await import('../cli/process-tracker.js');
+    vi.mocked(getActiveProcesses).mockReturnValueOnce(
+      new Set([{ kill: mockKill } as any])
+    );
+    const engine = await createEngine();
+    engine.cancel();
+    expect(mockKill).toHaveBeenCalledWith('SIGTERM');
   });
 });

@@ -13,6 +13,7 @@ import { debug } from '../cli/debug.js';
 import { CODEX_TIMEOUT_MEDIUM } from '../constants.js';
 import type { SpawnCodexInput, JsonlEvent } from '../types.js';
 import type { MuxEvent } from './events.js';
+import { waitForConfirm } from './confirm-registry.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -173,13 +174,38 @@ export async function* streamCodex(
         };
       }
 
-      // Yield confirm event for user review
+      // Yield confirm event — generator suspends here until TUI responds.
+      const confirmId = `codex-${finalResult.taskId}`;
       yield {
         type: 'confirm',
-        id: `codex-${finalResult.taskId}`,
+        id: confirmId,
         prompt: `Codex modified ${finalResult.filesModified.length} file(s) on branch ${finalResult.branchName}. Apply changes?`,
         options: ['yes', 'no', 'review'],
       };
+
+      // Suspend the generator until the TUI calls engine.respondToConfirm(id, choice).
+      const choice = await waitForConfirm(confirmId);
+      debug(`Codex confirm choice for ${confirmId}: ${choice}`);
+
+      if (choice === 'yes' || choice === 'y') {
+        // User approved — no further action needed, changes remain in worktree.
+        yield { type: 'progress', message: 'Changes accepted.', elapsed: 0 };
+      } else if (choice === 'review' || choice === 'd') {
+        // User wants full diff — already yielded above, just continue.
+        yield { type: 'progress', message: 'Review the diff above.', elapsed: 0 };
+      } else {
+        // User rejected (no / n) — rollback the worktree changes.
+        yield { type: 'progress', message: 'Changes rejected — rolling back…', elapsed: 0 };
+        try {
+          await execFileAsync('git', ['checkout', '--', '.'], {
+            cwd: finalResult.worktreePath,
+          });
+          yield { type: 'progress', message: 'Rollback complete.', elapsed: 0 };
+        } catch (rollbackErr) {
+          debug('Rollback failed:', rollbackErr);
+          yield { type: 'error', message: 'Rollback failed — manual cleanup may be needed.', recoverable: true };
+        }
+      }
     }
   }
 

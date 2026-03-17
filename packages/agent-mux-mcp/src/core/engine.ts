@@ -17,6 +17,7 @@ import { debug } from '../cli/debug.js';
 import { getActiveProcesses } from '../cli/process-tracker.js';
 import { streamClaude, streamChat } from './claude-stream.js';
 import { streamCodex } from './codex-stream.js';
+import { registerConfirm, resolveConfirm } from './confirm-registry.js';
 import type { MuxEvent, RouteOptions, RouteResult } from './events.js';
 import type {
   BudgetStatus,
@@ -49,11 +50,11 @@ export interface MuxEngine {
   analyzeAndRoute(task: string, opts?: RouteOptions): Promise<RouteResult>;
 
   /**
-   * Route and execute a task, yielding MuxEvent stream.
-   * If opts.route is set, skip routing and use that target directly.
-   * If opts.dryRun is true, only emit routing event (no actual execution).
+   * Execute a task with a pre-computed routing decision, yielding MuxEvent stream.
+   * The decision must come from analyzeAndRoute() first.
+   * If decision.target is unset, falls back to 'claude'.
    */
-  execute(task: string, opts?: RouteOptions): AsyncGenerator<MuxEvent>;
+  execute(task: string, decision: RouteResult): AsyncGenerator<MuxEvent>;
 
   /**
    * Send a chat message using the lightweight haiku model.
@@ -63,7 +64,7 @@ export interface MuxEngine {
   /**
    * Decompose a complex task into subtasks.
    */
-  decompose(task: string): DecompositionResult;
+  decompose(task: string): Promise<DecompositionResult>;
 
   /**
    * Execute a decomposed task's subtasks, yielding events for each.
@@ -111,7 +112,6 @@ export interface MuxEngine {
 
 class MuxEngineImpl implements MuxEngine {
   private configOverride?: Partial<MuxConfig>;
-  private confirmations = new Map<string, (response: string) => void>();
 
   constructor(configOverride?: Partial<MuxConfig>) {
     this.configOverride = configOverride;
@@ -157,15 +157,8 @@ class MuxEngineImpl implements MuxEngine {
     );
   }
 
-  async *execute(task: string, opts?: RouteOptions): AsyncGenerator<MuxEvent> {
-    const decision = await this.analyzeAndRoute(task, opts);
-
+  async *execute(task: string, decision: RouteResult): AsyncGenerator<MuxEvent> {
     yield { type: 'routing', decision };
-
-    if (opts?.dryRun) {
-      yield { type: 'done', summary: `[dry-run] Would route to ${decision.target}` };
-      return;
-    }
 
     if (decision.target === 'claude') {
       yield* streamClaude(task);
@@ -178,7 +171,7 @@ class MuxEngineImpl implements MuxEngine {
     yield* streamChat(message);
   }
 
-  decompose(task: string): DecompositionResult {
+  async decompose(task: string): Promise<DecompositionResult> {
     return decomposeTask(task);
   }
 
@@ -195,26 +188,23 @@ class MuxEngineImpl implements MuxEngine {
         elapsed: 0,
       };
 
-      // Route manually to the recommended target
-      const opts: RouteOptions = { route: subtask.recommendedTarget };
-      yield* this.execute(subtask.description, opts);
+      // Build a manual route decision for the subtask's recommended target
+      const decision = await this.analyzeAndRoute(subtask.description, {
+        route: subtask.recommendedTarget,
+      });
+      yield* this.execute(subtask.description, decision);
     }
   }
 
   respondToConfirm(id: string, response: string): void {
-    const resolver = this.confirmations.get(id);
-    if (resolver) {
-      resolver(response);
-      this.confirmations.delete(id);
-    } else {
+    const resolved = resolveConfirm(id, response);
+    if (!resolved) {
       debug(`respondToConfirm: no pending confirm with id ${id}`);
     }
   }
 
   waitForConfirm(id: string): Promise<string> {
-    return new Promise(resolve => {
-      this.confirmations.set(id, resolve);
-    });
+    return registerConfirm(id);
   }
 
   cancel(): void {
@@ -263,8 +253,9 @@ let _instance: MuxEngineImpl | null = null;
 /**
  * Create (or return existing) MuxEngine singleton.
  * Pass configOverride to override specific config fields for testing.
+ * Returns a Promise to support async initialization in React hooks.
  */
-export function createEngine(configOverride?: Partial<MuxConfig>): MuxEngine {
+export async function createEngine(configOverride?: Partial<MuxConfig>): Promise<MuxEngine> {
   if (!_instance) {
     _instance = new MuxEngineImpl(configOverride);
   } else if (configOverride) {
@@ -280,3 +271,10 @@ export function createEngine(configOverride?: Partial<MuxConfig>): MuxEngine {
 export function resetEngine(): void {
   _instance = null;
 }
+
+/**
+ * Register a pending confirm and return a Promise that resolves
+ * when the TUI calls engine.respondToConfirm(id, choice).
+ * Re-exported from confirm-registry for use in tests.
+ */
+export { waitForConfirm } from './confirm-registry.js';

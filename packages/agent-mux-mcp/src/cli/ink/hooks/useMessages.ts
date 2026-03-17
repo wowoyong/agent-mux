@@ -44,6 +44,7 @@ export function useMessages(): UseMessagesReturn {
   // Refs for mutable state — avoids stale closures in handleEvent
   const streamBufferRef = useRef<string>("");
   const currentMessageRef = useRef<Partial<Message>>({});
+  const appStateRef = useRef<AppState>("idle");
 
   // Keep refs in sync with state
   useEffect(() => {
@@ -53,6 +54,10 @@ export function useMessages(): UseMessagesReturn {
   useEffect(() => {
     currentMessageRef.current = currentMessage;
   }, [currentMessage]);
+
+  useEffect(() => {
+    appStateRef.current = appState;
+  }, [appState]);
 
   const addUserMessage = useCallback((content: string) => {
     const msg: Message = {
@@ -188,7 +193,7 @@ export function useMessages(): UseMessagesReturn {
           currentMessageRef.current = updated;
           return updated;
         });
-        if (appState !== "confirming") {
+        if (appStateRef.current !== "confirming") {
           setAppState("streaming");
         }
         break;

@@ -10,7 +10,6 @@ import { runTask } from './run.js';
 import { goTask } from './go.js';
 import { showStatus } from './status.js';
 import { interactiveSetup } from './setup.js';
-import { startRepl } from './repl.js';
 import { cleanupStaleWorktrees } from '../codex/worktree.js';
 import { getActiveProcesses } from './process-tracker.js';
 import { enableDebug, debug } from './debug.js';
@@ -64,7 +63,8 @@ program
   .description('agent-mux — Route tasks between Claude Code and Codex CLI')
   .version(getVersion())
   .option('--debug', 'Show detailed routing signals and execution info')
-  .option('--resume', 'Resume previous session');
+  .option('--resume', 'Resume previous session')
+  .option('--legacy', 'Use legacy readline REPL instead of Ink TUI');
 
 program
   .argument('[task]', 'Task description to route and execute')
@@ -81,7 +81,14 @@ program
       debug('Debug mode enabled');
     }
     if (!taskArg) {
-      await startRepl();
+      const opts = program.opts();
+      if (opts.legacy || !process.stdin.isTTY) {
+        const { startRepl } = await import('./repl.js');
+        await startRepl();
+      } else {
+        const { startInkRepl } = await import('./ink/render.js');
+        await startInkRepl();
+      }
       return;
     }
 
@@ -379,14 +386,6 @@ program
     }
 
     console.log(chalk.cyan(`\n  Batch complete: ${completed} succeeded, ${failed} failed.\n`));
-  });
-
-program
-  .command('tui')
-  .description('Interactive terminal dashboard')
-  .action(async () => {
-    const { startTui } = await import('./tui.js');
-    await startTui();
   });
 
 program

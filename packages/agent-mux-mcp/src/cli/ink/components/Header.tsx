@@ -14,7 +14,8 @@ interface HeaderProps {
 }
 
 function makeProgressBar(percent: number, width = 10): string {
-  const filled = Math.round((percent / 100) * width);
+  const clamped = Math.max(0, Math.min(100, percent));
+  const filled = Math.round((clamped / 100) * width);
   const empty = width - filled;
   return "\u2588".repeat(filled) + "\u2591".repeat(empty);
 }
@@ -26,33 +27,27 @@ function barColor(percent: number): "green" | "yellow" | "red" {
 }
 
 export function Header({ version, config, budget }: HeaderProps): React.ReactElement {
-  const claudePct = budget.claude.usagePercent;
-  const codexPct = budget.codex.usagePercent;
-  const claudeBar = makeProgressBar(claudePct);
-  const codexBar = makeProgressBar(codexPct);
-  const totalCost = (budget.claude.monthlyCost + budget.codex.monthlyCost).toFixed(2);
+  const claudePct = Math.round(budget.claude.usagePercent);
+  const codexPct = Math.round(budget.codex.usagePercent);
+  const totalCost = config.claude.cost + config.codex.cost;
 
   return (
-    <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="row" justifyContent="space-between">
-      <Box flexDirection="row" gap={1}>
+    <Box borderStyle="round" borderColor="gray" paddingX={1} flexDirection="column">
+      <Text>
         <Text bold color="cyan">agent-mux</Text>
-        <Text dimColor>v{version}</Text>
-        <Text dimColor>|</Text>
-        <Text color="white">{config.tier}</Text>
-      </Box>
-      <Box flexDirection="row" gap={2}>
-        <Box flexDirection="row" gap={1}>
-          <Text dimColor>Claude</Text>
-          <Text color={barColor(claudePct)}>{claudeBar}</Text>
-          <Text color={barColor(claudePct)}>{claudePct.toFixed(0)}%</Text>
-        </Box>
-        <Box flexDirection="row" gap={1}>
-          <Text dimColor>Codex</Text>
-          <Text color={barColor(codexPct)}>{codexBar}</Text>
-          <Text color={barColor(codexPct)}>{codexPct.toFixed(0)}%</Text>
-        </Box>
-        <Text dimColor>${totalCost}/mo</Text>
-      </Box>
+        <Text dimColor> v{version}</Text>
+        <Text dimColor> | </Text>
+        <Text>{config.tier}</Text>
+        <Text dimColor> (${totalCost}/mo)</Text>
+      </Text>
+      <Text>
+        <Text dimColor>Claude </Text>
+        <Text color={barColor(claudePct)}>{makeProgressBar(claudePct)}</Text>
+        <Text dimColor> {String(claudePct).padStart(3)}%  </Text>
+        <Text dimColor>Codex </Text>
+        <Text color={barColor(codexPct)}>{makeProgressBar(codexPct)}</Text>
+        <Text dimColor> {String(codexPct).padStart(3)}%</Text>
+      </Text>
     </Box>
   );
 }

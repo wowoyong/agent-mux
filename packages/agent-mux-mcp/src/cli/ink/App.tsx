@@ -171,12 +171,18 @@ export function App(): React.ReactElement {
         return;
       }
       addUserMessage(`/go ${task}`);
-      const decision = await engine.analyzeAndRoute(task, { route: "codex" });
-      lastDecisionRef.current = `Routed to ${decision.target}: ${decision.reason}`;
-      handleEvent({ type: "routing", decision });
-      for await (const event of engine.execute(task, decision)) {
-        handleEvent(event);
-        handleBudgetEvent(event);
+      try {
+        const decision = await engine.analyzeAndRoute(task, { route: "codex" });
+        lastDecisionRef.current = `Routed to ${decision.target}: ${decision.reason}`;
+        handleEvent({ type: "routing", decision });
+        for await (const event of engine.execute(task, decision)) {
+          handleEvent(event);
+          handleBudgetEvent(event);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        handleEvent({ type: 'error', message: msg, recoverable: true });
+        reset();
       }
       return;
     }
@@ -189,9 +195,15 @@ export function App(): React.ReactElement {
         return;
       }
       addUserMessage(chatInput);
-      for await (const event of engine.chat(chatInput)) {
-        handleEvent(event);
-        handleBudgetEvent(event);
+      try {
+        for await (const event of engine.chat(chatInput)) {
+          handleEvent(event);
+          handleBudgetEvent(event);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        handleEvent({ type: 'error', message: msg, recoverable: true });
+        reset();
       }
       return;
     }
@@ -200,18 +212,24 @@ export function App(): React.ReactElement {
 
     addUserMessage(trimmed);
 
-    if (engine.isCodingTask(trimmed)) {
-      const decision = await engine.analyzeAndRoute(trimmed);
-      lastDecisionRef.current = `Routed to ${decision.target} (${(decision.confidence * 100).toFixed(0)}%): ${decision.reason}`;
-      for await (const event of engine.execute(trimmed, decision)) {
-        handleEvent(event);
-        handleBudgetEvent(event);
+    try {
+      if (engine.isCodingTask(trimmed)) {
+        const decision = await engine.analyzeAndRoute(trimmed);
+        lastDecisionRef.current = `Routed to ${decision.target} (${(decision.confidence * 100).toFixed(0)}%): ${decision.reason}`;
+        for await (const event of engine.execute(trimmed, decision)) {
+          handleEvent(event);
+          handleBudgetEvent(event);
+        }
+      } else {
+        for await (const event of engine.chat(trimmed)) {
+          handleEvent(event);
+          handleBudgetEvent(event);
+        }
       }
-    } else {
-      for await (const event of engine.chat(trimmed)) {
-        handleEvent(event);
-        handleBudgetEvent(event);
-      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      handleEvent({ type: 'error', message: msg, recoverable: true });
+      reset();
     }
   };
 

@@ -115,7 +115,7 @@ export async function* streamClaude(
   prompt: string,
   opts?: StreamClaudeOptions,
 ): AsyncGenerator<MuxEvent> {
-  const args = ['-p', prompt, '--output-format', 'stream-json'];
+  const args = ['-p', prompt, '--verbose', '--output-format', 'stream-json'];
   if (opts?.model) {
     args.push('--model', opts.model);
   }

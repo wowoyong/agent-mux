@@ -4,8 +4,12 @@ import { Command } from 'commander';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { promises as fsPromises } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 import { runTask } from './run.js';
 import { goTask } from './go.js';
 import { showStatus } from './status.js';

@@ -10,7 +10,7 @@ import { App } from "./App.js";
 export async function startInkRepl(): Promise<void> {
   const instance = render(<App />, {
     exitOnCtrlC: false,   // We handle Ctrl+C ourselves in App.tsx
-    patchConsole: true,   // Capture console.log so it doesn't break layout
+    patchConsole: true,    // Capture console.log so it doesn't break layout
   });
 
   await instance.waitUntilExit();

@@ -1,0 +1,159 @@
+name: Release Desktop App
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+env:
+  WORKING_DIR: packages/agent-mux-desktop
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-arm64
+            runner: macos-14
+            arch: aarch64
+          - platform: macos-x64
+            runner: macos-13
+            arch: x86_64
+          - platform: windows
+            runner: windows-latest
+            arch: x86_64
+          - platform: linux
+            runner: ubuntu-22.04
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building version: ${VERSION}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npm install
+
+      - name: Build Tauri app (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npx tauri build --bundles app
+
+      - name: Build Tauri app (Windows)
+        if: matrix.platform == 'windows'
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npx tauri build --bundles msi,nsis
+
+      - name: Build Tauri app (Linux)
+        if: matrix.platform == 'linux'
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npx tauri build --bundles deb,appimage
+
+      - name: Create DMG (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        shell: bash
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          APP_ARCH: ${{ matrix.arch }}
+        run: |
+          chmod +x "${{ env.WORKING_DIR }}/scripts/build-dmg.sh"
+          "${{ env.WORKING_DIR }}/scripts/build-dmg.sh" \
+            "${{ env.WORKING_DIR }}/src-tauri/target/release/bundle/macos/Agent Mux.app" \
+            "$APP_VERSION" \
+            "$APP_ARCH"
+
+      - name: Upload macOS artifact
+        if: startsWith(matrix.platform, 'macos')
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-dmg
+          path: ${{ env.WORKING_DIR }}/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+      - name: Upload Windows artifacts
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            ${{ env.WORKING_DIR }}/src-tauri/target/release/bundle/msi/*.msi
+            ${{ env.WORKING_DIR }}/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      - name: Upload Linux artifacts
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installers
+          path: |
+            ${{ env.WORKING_DIR }}/src-tauri/target/release/bundle/appimage/*.AppImage
+            ${{ env.WORKING_DIR }}/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#desktop-v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Agent Mux Desktop v${{ steps.version.outputs.version }}"
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.msi
+            artifacts/**/*.exe
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

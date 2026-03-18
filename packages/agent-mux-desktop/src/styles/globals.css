@@ -1,0 +1,36 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* Titlebar drag region */
+[data-tauri-drag-region] { -webkit-app-region: drag; }
+
+/* Notification ring animation */
+@keyframes notification-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
+}
+.notification-ring { animation: notification-pulse 2s ease-in-out infinite; }
+
+/* xterm container */
+.xterm-container .xterm { height: 100%; }
+.xterm-container .xterm-viewport { overflow-y: auto !important; }
+
+/* Base styles */
+body {
+  margin: 0;
+  padding: 0;
+  background: #0a0a0a;
+  color: #e5e5e5;
+  font-family: "Inter", -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}

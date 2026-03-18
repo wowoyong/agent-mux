@@ -56,17 +56,25 @@ impl PtyManager {
     }
 
     pub fn read(&self, id: &str, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-        let instances = self.instances.lock().unwrap();
-        let instance = instances.get(id).ok_or("PTY not found")?;
-        let mut reader = instance.reader.lock().unwrap();
+        // Clone the Arc THEN drop instances lock — prevents deadlock with write()
+        let reader = {
+            let instances = self.instances.lock().unwrap();
+            let instance = instances.get(id).ok_or("PTY not found")?;
+            Arc::clone(&instance.reader)
+        }; // instances lock released here
+        let mut reader = reader.lock().unwrap();
         let n = reader.read(buf)?;
         Ok(n)
     }
 
     pub fn write(&self, id: &str, data: &[u8]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let instances = self.instances.lock().unwrap();
-        let instance = instances.get(id).ok_or("PTY not found")?;
-        let mut writer = instance.writer.lock().unwrap();
+        // Clone the Arc THEN drop instances lock — prevents deadlock with read()
+        let writer = {
+            let instances = self.instances.lock().unwrap();
+            let instance = instances.get(id).ok_or("PTY not found")?;
+            Arc::clone(&instance.writer)
+        }; // instances lock released here
+        let mut writer = writer.lock().unwrap();
         writer.write_all(data)?;
         writer.flush()?;
         Ok(())

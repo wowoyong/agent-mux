@@ -43,7 +43,7 @@ describe('workspaceStore', () => {
       const ws = getState().workspaces.find((w) => w.id === id);
       expect(ws).toBeDefined();
       expect(ws!.terminals).toHaveLength(1);
-      expect(ws!.terminals[0].type).toBe('shell');
+      expect(ws!.terminals[0].type).toBe('agent');
       expect(ws!.activeTerminalId).toBe(ws!.terminals[0].id);
       expect(getState().activeWorkspaceId).toBe(id);
       expect(getState().workspaces).toHaveLength(2);

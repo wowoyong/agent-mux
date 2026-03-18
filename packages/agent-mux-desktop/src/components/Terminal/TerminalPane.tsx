@@ -56,6 +56,16 @@ export function TerminalPane({ terminal, workspaceId, paneId, isActive }: Termin
             await resizePty(ptyIdRef.current, dims.cols, dims.rows);
           }
         }
+
+        // Auto-run initial command (e.g. "mux")
+        if (terminal.initialCommand && ptyIdRef.current) {
+          // Small delay for shell to initialize
+          setTimeout(() => {
+            if (ptyIdRef.current) {
+              writePty(ptyIdRef.current, terminal.initialCommand + '\n');
+            }
+          }, 500);
+        }
       } catch {
         // Tauri commands not available in dev mode without backend
         write('\r\n\x1b[33m[PTY not available - Tauri backend required]\x1b[0m\r\n');

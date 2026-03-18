@@ -10,6 +10,7 @@ export interface Terminal {
   unreadCount: number;
   needsAttention: boolean;
   status: 'idle' | 'running' | 'waiting' | 'error' | 'done';
+  initialCommand?: string; // auto-run on PTY spawn
 }
 
 export interface Pane {
@@ -52,7 +53,20 @@ export interface WorkspaceState {
   jumpToNextUnread: () => void;
 }
 
-function createDefaultTerminal(name: string): Terminal {
+function createMuxTerminal(name: string): Terminal {
+  return {
+    id: crypto.randomUUID(),
+    type: 'agent',
+    title: name,
+    cwd: '~',
+    unreadCount: 0,
+    needsAttention: false,
+    status: 'idle',
+    initialCommand: 'mux',
+  };
+}
+
+function createShellTerminal(name: string): Terminal {
   return {
     id: crypto.randomUUID(),
     type: 'shell',
@@ -107,7 +121,7 @@ function collectTerminalIds(pane: Pane): string[] {
   return [pane.terminalId];
 }
 
-const defaultTerminal = createDefaultTerminal('Shell');
+const defaultTerminal = createMuxTerminal('Agent Mux');
 const defaultWorkspace: Workspace = {
   id: crypto.randomUUID(),
   name: 'Workspace 1',
@@ -124,7 +138,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   createWorkspace: (name?: string) => {
     const id = crypto.randomUUID();
-    const terminal = createDefaultTerminal('Shell');
+    const terminal = createMuxTerminal('Agent Mux');
     const ws: Workspace = {
       id,
       name: name || `Workspace ${get().workspaces.length + 1}`,
@@ -216,7 +230,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         const targetPane = findPane(w.panes, paneId);
         if (!targetPane || targetPane.children) return w;
 
-        const newTerminal = createDefaultTerminal('Shell');
+        const newTerminal = createShellTerminal('Shell');
         const newPane: Pane = {
           id: crypto.randomUUID(),
           terminalId: newTerminal.id,

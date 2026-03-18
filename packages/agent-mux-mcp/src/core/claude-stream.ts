@@ -13,53 +13,68 @@ import { CLAUDE_TIMEOUT_DEFAULT } from '../constants.js';
 import type { MuxEvent } from './events.js';
 
 // ─── Claude stream-json event shapes ────────────────────────────────
+//
+// Claude CLI's `--output-format stream-json` emits these top-level types:
+//   "system"   — hook lifecycle, init (skip)
+//   "assistant" — complete or partial assistant messages
+//   "result"   — final turn result with summary text
+//   "rate_limit_event" — rate limit info (skip)
+//
+// These are NOT the same as Anthropic API SSE types (content_block_delta, etc.).
 
 interface ClaudeStreamEvent {
   type: string;
-  // assistant message delta
-  delta?: {
-    type?: string;
-    text?: string;
-    thinking?: string;
-    partial_json?: string;
-  };
-  // tool use
-  name?: string;
-  input?: Record<string, unknown>;
-  // tool result
-  content?: string | Array<{ type: string; text?: string }>;
-  // usage
-  usage?: { input_tokens?: number; output_tokens?: number };
-  // error
-  error?: { message?: string; type?: string };
-  // message start/stop
+  subtype?: string;
+  // CLI "assistant" event — contains the full message object
   message?: {
     role?: string;
     content?: Array<{ type: string; text?: string; thinking?: string }>;
   };
+  // CLI "result" event
+  result?: string;
+  is_error?: boolean;
+  // CLI tool events
+  name?: string;
+  input?: Record<string, unknown>;
+  content?: string | Array<{ type: string; text?: string }>;
+  // error
+  error?: { message?: string; type?: string };
 }
 
 // ─── Event Parser ────────────────────────────────────────────────────
 
 /**
- * Map a single Claude stream-json event object to a MuxEvent (or null to skip).
+ * Map a single Claude CLI stream-json event to a MuxEvent (or null to skip).
  */
-export function parseClaudeStreamEvent(event: ClaudeStreamEvent): MuxEvent | null {
+export function parseClaudeStreamEvent(event: ClaudeStreamEvent): MuxEvent | MuxEvent[] | null {
   const { type } = event;
 
   switch (type) {
-    case 'content_block_delta': {
-      const delta = event.delta;
-      if (!delta) return null;
-      if (delta.type === 'text_delta' && typeof delta.text === 'string') {
-        return { type: 'stream', chunk: delta.text };
+    // ── CLI "assistant" event — extract text/thinking from message content ──
+    case 'assistant': {
+      const content = event.message?.content;
+      if (!Array.isArray(content)) return null;
+
+      const results: MuxEvent[] = [];
+      for (const block of content) {
+        if (block.type === 'text' && typeof block.text === 'string') {
+          results.push({ type: 'stream', chunk: block.text });
+        } else if (block.type === 'thinking' && typeof block.thinking === 'string') {
+          results.push({ type: 'thinking', content: block.thinking });
+        }
       }
-      if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
-        return { type: 'thinking', content: delta.thinking };
-      }
-      return null;
+      return results.length > 0 ? results : null;
     }
 
+    // ── CLI "result" event — final summary ──
+    case 'result': {
+      if (event.is_error) {
+        return { type: 'error', message: event.result ?? 'Unknown error', recoverable: false };
+      }
+      return { type: 'done', summary: event.result ?? '' };
+    }
+
+    // ── CLI tool events ──
     case 'tool_use': {
       const toolName = typeof event.name === 'string' ? event.name : 'unknown';
       const toolInput = (event.input as Record<string, unknown>) ?? {};
@@ -79,19 +94,10 @@ export function parseClaudeStreamEvent(event: ClaudeStreamEvent): MuxEvent | nul
       return { type: 'tool_result', output };
     }
 
-    case 'message_stop':
-    case 'message_delta': {
-      // Completion event — emit done with empty summary (caller fills it in)
-      if (type === 'message_stop') {
-        return { type: 'done', summary: '' };
-      }
+    // ── Skip system/hook events, rate limits ──
+    case 'system':
+    case 'rate_limit_event':
       return null;
-    }
-
-    case 'error': {
-      const msg = event.error?.message ?? event.error?.type ?? 'Unknown Claude error';
-      return { type: 'error', message: msg, recoverable: false };
-    }
 
     default:
       return null;
@@ -167,8 +173,14 @@ export async function* streamClaude(
     // Try JSON parse
     try {
       const ev = JSON.parse(trimmed) as ClaudeStreamEvent;
-      const muxEv = parseClaudeStreamEvent(ev);
-      if (muxEv) push(muxEv);
+      const parsed = parseClaudeStreamEvent(ev);
+      if (parsed) {
+        if (Array.isArray(parsed)) {
+          for (const muxEv of parsed) push(muxEv);
+        } else {
+          push(parsed);
+        }
+      }
     } catch {
       // Fallback: emit as plain text stream chunk
       push({ type: 'stream', chunk: trimmed + '\n' });

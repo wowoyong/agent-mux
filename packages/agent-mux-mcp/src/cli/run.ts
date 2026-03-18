@@ -26,7 +26,10 @@ export async function runTask(taskDescription: string, options: RunOptions): Pro
   // If not a coding task, handle as general chat
   if (!isCodingTask(taskDescription)) {
     console.log(chalk.gray('  (general chat \u2192 Claude)\n'));
-    await spawnClaude(taskDescription, { stream: true, model: 'haiku' });
+    const result = await spawnClaude(taskDescription, { stream: true, model: 'haiku', timeout: 60_000 });
+    if (!result.success && result.error) {
+      console.error(chalk.red('\n  ' + result.error));
+    }
     return;
   }
 

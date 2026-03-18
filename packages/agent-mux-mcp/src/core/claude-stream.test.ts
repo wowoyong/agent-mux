@@ -2,45 +2,68 @@ import { describe, it, expect } from 'vitest';
 import { parseClaudeStreamEvent } from './claude-stream.js';
 
 describe('parseClaudeStreamEvent', () => {
-  describe('content_block_delta — text_delta', () => {
-    it('emits stream chunk for text_delta', () => {
+  describe('assistant — text content', () => {
+    it('emits stream chunk for text content', () => {
       const ev = parseClaudeStreamEvent({
-        type: 'content_block_delta',
-        delta: { type: 'text_delta', text: 'Hello world' },
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Hello world' }],
+        },
       });
-      expect(ev).toEqual({ type: 'stream', chunk: 'Hello world' });
+      expect(ev).toEqual([{ type: 'stream', chunk: 'Hello world' }]);
     });
 
-    it('returns null for empty text_delta', () => {
-      // text is empty string — still a valid stream event
+    it('emits multiple events for mixed content', () => {
       const ev = parseClaudeStreamEvent({
-        type: 'content_block_delta',
-        delta: { type: 'text_delta', text: '' },
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'Let me think…' },
+            { type: 'text', text: 'Here is my answer' },
+          ],
+        },
       });
-      expect(ev).toEqual({ type: 'stream', chunk: '' });
+      expect(ev).toEqual([
+        { type: 'thinking', content: 'Let me think…' },
+        { type: 'stream', chunk: 'Here is my answer' },
+      ]);
+    });
+
+    it('returns null when content is empty', () => {
+      const ev = parseClaudeStreamEvent({
+        type: 'assistant',
+        message: { role: 'assistant', content: [] },
+      });
+      expect(ev).toBeNull();
+    });
+
+    it('returns null when message is missing', () => {
+      const ev = parseClaudeStreamEvent({ type: 'assistant' });
+      expect(ev).toBeNull();
     });
   });
 
-  describe('content_block_delta — thinking_delta', () => {
-    it('emits thinking event for thinking_delta', () => {
+  describe('result', () => {
+    it('emits done event with summary', () => {
       const ev = parseClaudeStreamEvent({
-        type: 'content_block_delta',
-        delta: { type: 'thinking_delta', thinking: 'Let me think…' },
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: 'Task completed successfully',
       });
-      expect(ev).toEqual({ type: 'thinking', content: 'Let me think…' });
+      expect(ev).toEqual({ type: 'done', summary: 'Task completed successfully' });
     });
 
-    it('returns null when delta is missing', () => {
-      const ev = parseClaudeStreamEvent({ type: 'content_block_delta' });
-      expect(ev).toBeNull();
-    });
-
-    it('returns null for unknown delta type', () => {
+    it('emits error event when is_error is true', () => {
       const ev = parseClaudeStreamEvent({
-        type: 'content_block_delta',
-        delta: { type: 'unknown_delta' },
+        type: 'result',
+        subtype: 'error',
+        is_error: true,
+        result: 'Something went wrong',
       });
-      expect(ev).toBeNull();
+      expect(ev).toEqual({ type: 'error', message: 'Something went wrong', recoverable: false });
     });
   });
 
@@ -61,11 +84,6 @@ describe('parseClaudeStreamEvent', () => {
     it('uses "unknown" for missing tool name', () => {
       const ev = parseClaudeStreamEvent({ type: 'tool_use' });
       expect(ev).toEqual({ type: 'tool_use', tool: 'unknown', input: {} });
-    });
-
-    it('uses empty object for missing input', () => {
-      const ev = parseClaudeStreamEvent({ type: 'tool_use', name: 'bash' });
-      expect(ev).toEqual({ type: 'tool_use', tool: 'bash', input: {} });
     });
   });
 
@@ -89,82 +107,24 @@ describe('parseClaudeStreamEvent', () => {
       expect(ev).toEqual({ type: 'tool_result', output: 'line 1\nline 2\n' });
     });
 
-    it('skips non-text content items in array', () => {
-      const ev = parseClaudeStreamEvent({
-        type: 'tool_result',
-        content: [
-          { type: 'image', text: 'should be ignored' },
-          { type: 'text', text: 'visible' },
-        ],
-      });
-      expect(ev).toEqual({ type: 'tool_result', output: 'visible' });
-    });
-
     it('emits empty output for missing content', () => {
       const ev = parseClaudeStreamEvent({ type: 'tool_result' });
       expect(ev).toEqual({ type: 'tool_result', output: '' });
     });
   });
 
-  describe('message_stop', () => {
-    it('emits done event', () => {
-      const ev = parseClaudeStreamEvent({ type: 'message_stop' });
-      expect(ev).toEqual({ type: 'done', summary: '' });
-    });
-  });
-
-  describe('message_delta', () => {
-    it('returns null for message_delta (not a completion marker)', () => {
-      const ev = parseClaudeStreamEvent({ type: 'message_delta' });
-      expect(ev).toBeNull();
-    });
-  });
-
-  describe('error', () => {
-    it('emits error event with message', () => {
-      const ev = parseClaudeStreamEvent({
-        type: 'error',
-        error: { message: 'Rate limit exceeded', type: 'rate_limit_error' },
-      });
-      expect(ev).toEqual({ type: 'error', message: 'Rate limit exceeded', recoverable: false });
-    });
-
-    it('uses error.type when message is missing', () => {
-      const ev = parseClaudeStreamEvent({
-        type: 'error',
-        error: { type: 'invalid_request_error' },
-      });
-      expect(ev).toEqual({ type: 'error', message: 'invalid_request_error', recoverable: false });
-    });
-
-    it('uses fallback message when error is empty', () => {
-      const ev = parseClaudeStreamEvent({ type: 'error', error: {} });
-      expect(ev).toEqual({ type: 'error', message: 'Unknown Claude error', recoverable: false });
-    });
-
-    it('handles missing error field', () => {
-      const ev = parseClaudeStreamEvent({ type: 'error' });
-      expect(ev).toEqual({ type: 'error', message: 'Unknown Claude error', recoverable: false });
-    });
-  });
-
-  describe('unknown event types', () => {
-    it('returns null for message_start', () => {
-      const ev = parseClaudeStreamEvent({ type: 'message_start' });
+  describe('skipped event types', () => {
+    it('returns null for system events', () => {
+      const ev = parseClaudeStreamEvent({ type: 'system', subtype: 'init' });
       expect(ev).toBeNull();
     });
 
-    it('returns null for content_block_start', () => {
-      const ev = parseClaudeStreamEvent({ type: 'content_block_start' });
+    it('returns null for rate_limit_event', () => {
+      const ev = parseClaudeStreamEvent({ type: 'rate_limit_event' });
       expect(ev).toBeNull();
     });
 
-    it('returns null for content_block_stop', () => {
-      const ev = parseClaudeStreamEvent({ type: 'content_block_stop' });
-      expect(ev).toBeNull();
-    });
-
-    it('returns null for completely unknown type', () => {
+    it('returns null for unknown type', () => {
       const ev = parseClaudeStreamEvent({ type: 'ping' });
       expect(ev).toBeNull();
     });

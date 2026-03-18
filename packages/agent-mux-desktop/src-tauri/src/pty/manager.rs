@@ -97,3 +97,136 @@ impl PtyManager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+    use std::time::Duration;
+
+    fn default_shell() -> String {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    }
+
+    fn home_dir() -> String {
+        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+    }
+
+    #[test]
+    fn new() {
+        let mgr = PtyManager::new();
+        let instances = mgr.instances.lock().unwrap();
+        assert!(instances.is_empty());
+    }
+
+    #[test]
+    fn spawn() {
+        let mgr = PtyManager::new();
+        let id = mgr.spawn(&default_shell(), &home_dir()).expect("spawn failed");
+        // UUID v4 format: 8-4-4-4-12 hex chars
+        assert_eq!(id.len(), 36);
+        assert_eq!(id.chars().filter(|c| *c == '-').count(), 4);
+        // Cleanup
+        let _ = mgr.kill(&id);
+    }
+
+    #[test]
+    fn write_read() {
+        let mgr = PtyManager::new();
+        let id = mgr.spawn(&default_shell(), &home_dir()).expect("spawn failed");
+
+        // Wait for shell to initialize
+        thread::sleep(Duration::from_millis(500));
+
+        // Drain any initial shell output
+        let mut drain = [0u8; 4096];
+        // Non-blocking drain: read whatever is available
+        // The PTY read may block, so we use a timeout approach via a thread
+        let mgr_clone = mgr.clone();
+        let id_clone = id.clone();
+        let _drain_handle = thread::spawn(move || {
+            let _ = mgr_clone.read(&id_clone, &mut drain);
+        });
+        thread::sleep(Duration::from_millis(300));
+        // drain_handle may still be blocking, that's ok
+
+        mgr.write(&id, b"echo hello\n").expect("write failed");
+        thread::sleep(Duration::from_millis(500));
+
+        // Read in a loop with a timeout
+        let mgr_clone = mgr.clone();
+        let id_clone = id.clone();
+        let read_handle = thread::spawn(move || {
+            let mut collected = String::new();
+            let start = std::time::Instant::now();
+            while start.elapsed() < Duration::from_secs(3) {
+                let mut buf = [0u8; 4096];
+                match mgr_clone.read(&id_clone, &mut buf) {
+                    Ok(n) if n > 0 => {
+                        collected.push_str(&String::from_utf8_lossy(&buf[..n]));
+                        if collected.contains("hello") {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            collected
+        });
+
+        let output = read_handle.join().expect("read thread panicked");
+        assert!(
+            output.contains("hello"),
+            "expected output to contain 'hello', got: {}",
+            output
+        );
+
+        let _ = mgr.kill(&id);
+    }
+
+    #[test]
+    fn resize() {
+        let mgr = PtyManager::new();
+        let id = mgr.spawn(&default_shell(), &home_dir()).expect("spawn failed");
+        thread::sleep(Duration::from_millis(200));
+
+        let result = mgr.resize(&id, 120, 40);
+        assert!(result.is_ok(), "resize failed: {:?}", result.err());
+
+        let _ = mgr.kill(&id);
+    }
+
+    #[test]
+    fn kill() {
+        let mgr = PtyManager::new();
+        let id = mgr.spawn(&default_shell(), &home_dir()).expect("spawn failed");
+        thread::sleep(Duration::from_millis(200));
+
+        mgr.kill(&id).expect("kill failed");
+
+        // After kill, the instance is removed, so read should fail with "PTY not found"
+        let mut buf = [0u8; 1024];
+        let result = mgr.read(&id, &mut buf);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn multiple() {
+        let mgr = PtyManager::new();
+        let id1 = mgr.spawn(&default_shell(), &home_dir()).expect("spawn 1 failed");
+        let id2 = mgr.spawn(&default_shell(), &home_dir()).expect("spawn 2 failed");
+        let id3 = mgr.spawn(&default_shell(), &home_dir()).expect("spawn 3 failed");
+
+        assert_ne!(id1, id2);
+        assert_ne!(id2, id3);
+        assert_ne!(id1, id3);
+
+        let instances = mgr.instances.lock().unwrap();
+        assert_eq!(instances.len(), 3);
+        drop(instances);
+
+        let _ = mgr.kill(&id1);
+        let _ = mgr.kill(&id2);
+        let _ = mgr.kill(&id3);
+    }
+}

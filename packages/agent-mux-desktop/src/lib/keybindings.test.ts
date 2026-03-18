@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { setupKeybindings } from './keybindings';
 
 function fireKey(key: string, options: Partial<KeyboardEventInit> = {}, target?: EventTarget) {

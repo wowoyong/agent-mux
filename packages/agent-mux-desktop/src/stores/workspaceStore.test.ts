@@ -229,7 +229,7 @@ describe('workspaceStore', () => {
   describe('jumpToNextUnread', () => {
     it('jumps to first workspace with unread terminal', () => {
       // Create a second workspace
-      const ws2Id = getState().createWorkspace('WS 2');
+      getState().createWorkspace('WS 2');
       const ws1Id = getState().workspaces[0].id;
 
       // Set active to ws1

@@ -17,9 +17,11 @@
 }
 .notification-ring { animation: notification-pulse 2s ease-in-out infinite; }
 
-/* xterm container */
+/* xterm container — must allow selection and input */
 .xterm-container .xterm { height: 100%; }
 .xterm-container .xterm-viewport { overflow-y: auto !important; }
+.xterm-container .xterm-helper-textarea { opacity: 0 !important; }
+.xterm-container { user-select: text; -webkit-user-select: text; }
 
 /* Base styles */
 body {

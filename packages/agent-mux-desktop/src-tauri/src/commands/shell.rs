@@ -16,7 +16,14 @@ pub async fn spawn_pty(
     shell: Option<String>,
 ) -> Result<String, String> {
     let shell_path = shell.unwrap_or_else(|| get_default_shell());
-    let id = state.spawn(&shell_path, &cwd).map_err(|e| e.to_string())?;
+    // Expand ~ to actual home directory
+    let expanded_cwd = if cwd == "~" || cwd.starts_with("~/") {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/Users".to_string());
+        cwd.replacen("~", &home, 1)
+    } else {
+        cwd
+    };
+    let id = state.spawn(&shell_path, &expanded_cwd).map_err(|e| e.to_string())?;
 
     // Start reading output in background
     let pty_id = id.clone();

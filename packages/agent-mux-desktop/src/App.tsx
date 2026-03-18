@@ -20,16 +20,6 @@ function App() {
 
       {/* Main area */}
       <div className="flex flex-col flex-1 min-w-0">
-        {/* Titlebar drag region (macOS traffic light offset) */}
-        <div
-          data-tauri-drag-region
-          className="h-8 bg-[#0a0a0a] border-b border-[#262626] shrink-0 flex items-center pl-[72px]"
-        >
-          <span className="text-[11px] text-[#737373] select-none">
-            Agent Mux
-          </span>
-        </div>
-
         {/* Workspace area */}
         {hasWorkspaces ? (
           <WorkspaceView />

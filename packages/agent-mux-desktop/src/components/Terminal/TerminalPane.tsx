@@ -119,7 +119,8 @@ export function TerminalPane({ terminal, workspaceId, paneId, isActive }: Termin
       {/* Terminal container */}
       <div
         ref={containerRef}
-        className="xterm-container flex-1 min-h-0"
+        className="xterm-container flex-1 min-h-0 select-text"
+        onClick={() => focus()}
       />
     </div>
   );
